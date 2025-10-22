@@ -13,3 +13,6 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+The link for viewing form submission stats:
+urban-noise-experience-survey.vercel.app/stats
+
