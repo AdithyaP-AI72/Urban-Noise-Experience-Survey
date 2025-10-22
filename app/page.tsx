@@ -9,6 +9,9 @@ export default function SurveyHome() {
         SoundScape Survey
       </h1>
       <p>
+        The survey will go here! (Cache test 1)
+      </p>
+      <p>
         The survey will go here!
       </p>
     </main>
