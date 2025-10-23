@@ -41,80 +41,92 @@ export async function GET() {
             // Occupation Counts
             runAggregation([
                 { $group: { _id: '$occupation', count: { $sum: 1 } } },
-                { $match: { _id: { $ne: null, $ne: '' } } },
+                // *** FIX: Use $nin to check for null AND empty string ***
+                { $match: { _id: { $nin: [null, ''] } } },
                 { $sort: { count: -1 } },
             ], 'Occupation'),
             // Age Group Counts
             runAggregation([
                 { $group: { _id: '$ageGroup', count: { $sum: 1 } } },
-                { $match: { _id: { $ne: null, $ne: '' } } },
+                // *** FIX: Use $nin ***
+                { $match: { _id: { $nin: [null, ''] } } },
                 { $sort: { _id: 1 } },
             ], 'Age Group'),
-             // Noise Locations (Unwind)
+            // Noise Locations (Unwind)
             runAggregation([
-                { $match: { noiseSourceLocations: { $exists: true, $ne: null, $not: {$size: 0} } } },
+                { $match: { noiseSourceLocations: { $exists: true, $ne: null, $not: { $size: 0 } } } },
                 { $unwind: '$noiseSourceLocations' },
                 { $group: { _id: '$noiseSourceLocations', count: { $sum: 1 } } },
-                { $match: { _id: { $ne: null, $ne: '' } } },
+                // *** FIX: Use $nin ***
+                { $match: { _id: { $nin: [null, ''] } } },
                 { $sort: { count: -1 } },
             ], 'Noise Locations'),
             // Noise Exposure Frequency Counts (with custom sort)
             runAggregation([
                 { $group: { _id: '$noiseExposureFreq', count: { $sum: 1 } } },
-                { $match: { _id: { $ne: null, $ne: '' } } },
-                { $addFields: { order: { $switch: { branches: [ { case: { $eq: [ "$_id", "Rarely" ] }, then: 1 }, { case: { $eq: [ "$_id", "Sometimes" ] }, then: 2 }, { case: { $eq: [ "$_id", "Often" ] }, then: 3 }, { case: { $eq: [ "$_id", "Very Often" ] }, then: 4 }, { case: { $eq: [ "$_id", "Constantly" ] }, then: 5 }, ], default: 99 } } } },
+                // *** FIX: Use $nin ***
+                { $match: { _id: { $nin: [null, ''] } } },
+                { $addFields: { order: { $switch: { branches: [{ case: { $eq: ["$_id", "Rarely"] }, then: 1 }, { case: { $eq: ["$_id", "Sometimes"] }, then: 2 }, { case: { $eq: ["$_id", "Often"] }, then: 3 }, { case: { $eq: ["$_id", "Very Often"] }, then: 4 }, { case: { $eq: ["$_id", "Constantly"] }, then: 5 },], default: 99 } } } },
                 { $sort: { order: 1 } },
             ], 'Noise Exposure Freq'),
-             // Common Sounds (Unwind)
+            // Common Sounds (Unwind)
             runAggregation([
-                { $match: { commonNoiseSources: { $exists: true, $ne: null, $not: {$size: 0} } } },
+                { $match: { commonNoiseSources: { $exists: true, $ne: null, $not: { $size: 0 } } } },
                 { $unwind: '$commonNoiseSources' },
                 { $group: { _id: '$commonNoiseSources', count: { $sum: 1 } } },
-                { $match: { _id: { $ne: null, $ne: '' } } },
+                // *** FIX: Use $nin ***
+                { $match: { _id: { $nin: [null, ''] } } },
                 { $sort: { count: -1 } },
             ], 'Common Sounds'),
             // Focus Disturbance Counts (with custom sort)
             runAggregation([
                 { $group: { _id: '$focusDisturbance', count: { $sum: 1 } } },
-                { $match: { _id: { $ne: null, $ne: '' } } },
-                { $addFields: { order: { $switch: { branches: [ { case: { $eq: [ "$_id", "Rarely" ] }, then: 1 }, { case: { $eq: [ "$_id", "Sometimes" ] }, then: 2 }, { case: { $eq: [ "$_id", "Often" ] }, then: 3 }, { case: { $eq: [ "$_id", "Almost Always" ] }, then: 4 }, ], default: 99 } } } },
+                // *** FIX: Use $nin ***
+                { $match: { _id: { $nin: [null, ''] } } },
+                { $addFields: { order: { $switch: { branches: [{ case: { $eq: ["$_id", "Rarely"] }, then: 1 }, { case: { $eq: ["$_id", "Sometimes"] }, then: 2 }, { case: { $eq: ["$_id", "Often"] }, then: 3 }, { case: { $eq: ["$_id", "Almost Always"] }, then: 4 },], default: 99 } } } },
                 { $sort: { order: 1 } },
             ], 'Focus Disturbance'),
-             // Headphone Frequency Distribution
+            // Headphone Frequency Distribution
             runAggregation([
                 { $group: { _id: '$headphoneFreq', count: { $sum: 1 } } },
-                { $match: { _id: { $ne: null } } },
+                // $nin can check for null numbers too
+                { $match: { _id: { $nin: [null] } } },
                 { $sort: { _id: 1 } },
             ], 'Headphone Freq Dist'),
             // Bother Level Counts (group by label, sort by level)
             runAggregation([
-                { $group: { _id: '$botherLabel', level: { $first: '$botherLevel'}, count: { $sum: 1 } } },
-                { $match: { _id: { $ne: null, $ne: '' } } },
+                { $group: { _id: '$botherLabel', level: { $first: '$botherLevel' }, count: { $sum: 1 } } },
+                // *** FIX: Use $nin ***
+                { $match: { _id: { $nin: [null, ''] } } },
                 { $sort: { level: 1 } },
             ], 'Bother Level'),
             // Community Seriousness Counts
             runAggregation([
                 { $group: { _id: '$communitySeriousness', count: { $sum: 1 } } },
-                { $match: { _id: { $ne: null, $ne: '' } } },
+                // *** FIX: Use $nin ***
+                { $match: { _id: { $nin: [null, ''] } } },
                 { $sort: { count: -1 } },
             ], 'Community Seriousness'),
             // Map Interest Counts
             runAggregation([
                 { $group: { _id: '$mapInterest', count: { $sum: 1 } } },
-                { $match: { _id: { $ne: null, $ne: '' } } },
+                // *** FIX: Use $nin ***
+                { $match: { _id: { $nin: [null, ''] } } },
                 { $sort: { count: -1 } },
             ], 'Map Interest'),
             // Citizen Scientist Counts
             runAggregation([
                 { $group: { _id: '$citizenScientist', count: { $sum: 1 } } },
-                { $match: { _id: { $ne: null, $ne: '' } } },
+                // *** FIX: Use $nin ***
+                { $match: { _id: { $nin: [null, ''] } } },
                 { $sort: { count: -1 } },
             ], 'Citizen Scientist'),
             // Top Feature Preference (#1 Rank) Counts
             runAggregation([
-                { $match: { featurePriorities: { $exists: true, $ne: null, $not: {$size: 0} } } },
+                { $match: { featurePriorities: { $exists: true, $ne: null, $not: { $size: 0 } } } },
                 { $group: { _id: { $first: '$featurePriorities' }, count: { $sum: 1 } } },
-                { $match: { _id: { $ne: null, $ne: '' } } },
+                // *** FIX: Use $nin ***
+                { $match: { _id: { $nin: [null, ''] } } },
                 { $sort: { count: -1 } },
             ], 'Top Feature'),
         ]);
