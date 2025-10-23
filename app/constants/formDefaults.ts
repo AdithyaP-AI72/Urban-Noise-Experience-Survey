@@ -1,0 +1,20 @@
+export const defaultFormData = {
+  ageGroup: '',
+  occupation: '',
+  noiseSourceLocations: [],
+  noiseRating: 3,
+  commonNoiseSources: [],
+  focusDisturbance: '',
+  headphoneFreq: 5,
+  botherLevel: 60,
+  botherLabel: 'Normal Conversation',
+  communitySeriousness: '',
+  mapInterest: '',
+  citizenScientist: '',
+  featurePriorities: [
+    'Noise Heatmaps',
+    'Quieter Routes',
+    'Noise Forecasts',
+    'Report & Learn Tool',
+  ],
+};
