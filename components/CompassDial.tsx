@@ -1,13 +1,8 @@
 "use client";
 
-import { useRef, useEffect } from 'react';
-import {
-    motion,
-    PanInfo,
-    useMotionValue,
-    animate,
-} from 'framer-motion';
-import * as Tone from 'tone';
+import { useRef, useEffect } from "react";
+import { motion, PanInfo, useMotionValue, animate } from "framer-motion";
+import * as Tone from "tone";
 
 declare var knobOsc: Tone.Oscillator | null;
 declare var zapSynth: Tone.Synth | null;
@@ -36,7 +31,7 @@ const CompassDial = ({
     const anglePerOption = 360 / numOptions;
     const radius = size / 2.2;
 
-    // Set initial rotation
+    // Set initial rotation based on value
     useEffect(() => {
         const initialIndex = options.indexOf(value);
         if (initialIndex !== -1) {
@@ -45,8 +40,13 @@ const CompassDial = ({
         }
     }, [value, options, anglePerOption, rotation]);
 
-    const handlePanStart = (e: MouseEvent | TouchEvent | PointerEvent) => {
+    const handlePanStart = async (e: MouseEvent | TouchEvent | PointerEvent) => {
         stopCurrentSound();
+
+        // ✅ Resume Tone.js context for mobile
+        if (Tone.context.state !== "running") {
+            await Tone.start();
+        }
 
         if (knobOsc?.state === "stopped") knobOsc.start();
         knobOsc?.volume.rampTo(-25, 0.1);
@@ -58,7 +58,7 @@ const CompassDial = ({
             y: rect.top + rect.height / 2,
         };
 
-        let clientX, clientY;
+        let clientX: number, clientY: number;
         if ("touches" in e) {
             clientX = e.touches[0].clientX;
             clientY = e.touches[0].clientY;
@@ -67,18 +67,15 @@ const CompassDial = ({
             clientY = (e as MouseEvent).clientY;
         }
 
-        // Angle from center to touch
         startAngleRef.current = Math.atan2(
             clientY - centerRef.current.y,
             clientX - centerRef.current.x
         );
-
-        // NEW: Use the current rotation of the dial as starting rotation
         startRotationRef.current = rotation.get();
     };
 
     const handlePan = (e: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
-        let clientX, clientY;
+        let clientX: number, clientY: number;
         if ("touches" in e) {
             clientX = e.touches[0].clientX;
             clientY = e.touches[0].clientY;
@@ -94,7 +91,7 @@ const CompassDial = ({
 
         let deltaAngle = currentAngle - startAngleRef.current;
 
-        // Normalize for ±π wraparound
+        // Normalize across ±π boundary to prevent extra rotations
         if (deltaAngle > Math.PI) deltaAngle -= 2 * Math.PI;
         if (deltaAngle < -Math.PI) deltaAngle += 2 * Math.PI;
 
@@ -114,6 +111,7 @@ const CompassDial = ({
 
         const currentRotation = rotation.get();
         const closestSnapRotation = Math.round(currentRotation / anglePerOption) * anglePerOption;
+
         const snapIndex = Math.round(closestSnapRotation / -anglePerOption);
         const finalIndex = (snapIndex % numOptions + numOptions) % numOptions;
         const selectedOption = options[finalIndex];
@@ -172,9 +170,9 @@ const CompassDial = ({
                 >
                     <div
                         className="absolute top-2 w-0 h-0 
-                        border-l-[10px] border-l-transparent
-                        border-r-[10px] border-r-transparent
-                        border-b-[16px] border-b-green-500"
+            border-l-[10px] border-l-transparent
+            border-r-[10px] border-r-transparent
+            border-b-[16px] border-b-green-500"
                         style={{ pointerEvents: "none" }}
                     />
                 </motion.div>
