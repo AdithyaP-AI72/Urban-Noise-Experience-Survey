@@ -147,6 +147,9 @@ export default function SurveyHome() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null); // Ref for the name input
 
+  // *** NEW: State for validation errors ***
+  const [error, setError] = useState<string | null>(null);
+
   // State specifically for the draggable list items, maintaining full object data
   const [draggableFeatures, setDraggableFeatures] = useState<FeatureItem[]>(() => {
     return formData.featurePriorities.map(name => {
@@ -178,12 +181,18 @@ export default function SurveyHome() {
   // *** UPDATED: Check Local Storage on mount and initialize sounds ***
   useEffect(() => {
     // Check localStorage only after component mounts (client-side)
-    const submitted = localStorage.getItem('surveySubmitted') === 'true';
-    if (submitted) {
-      setAlreadySubmitted(true);
-      setStep(100); // Go to the "already submitted" step immediately
+    // Ensure 'window' is defined before accessing localStorage
+    if (typeof window !== 'undefined') {
+      const submitted = localStorage.getItem('surveySubmitted') === 'true';
+      if (submitted) {
+        setAlreadySubmitted(true);
+        setStep(100); // Go to the "already submitted" step immediately
+      } else {
+        setAlreadySubmitted(false); // Explicitly set to false if not found
+      }
     } else {
-      setAlreadySubmitted(false); // Explicitly set to false if not found
+      // Fallback for SSR or environments without localStorage
+      setAlreadySubmitted(false);
     }
 
     // Initialize sounds (runs only once after initial check)
@@ -220,58 +229,92 @@ export default function SurveyHome() {
 
   // Handler for Drag and Drop order changes using setTimeout fix
   const handleFeatureOrderChange = (newOrderNames: string[]) => {
+    // Use setTimeout to ensure state updates happen after the current render cycle
     setTimeout(() => {
+      // Update the formData directly with the new order of names
+      // This should trigger after the render cycle completes
       setFormData(prev => {
+        // Only update if the order actually changed
         if (JSON.stringify(prev.featurePriorities) !== JSON.stringify(newOrderNames)) {
           return { ...prev, featurePriorities: newOrderNames };
         }
-        return prev;
+        return prev; // No change needed
       });
+
+      // Update the draggableFeatures state based on the new name order
       setDraggableFeatures(currentDraggableFeatures => {
+        // Build a map of the current full feature objects by name for efficient lookup
         const featureMap = new Map<string, FeatureItem>();
         currentDraggableFeatures.forEach(f => featureMap.set(f.name, f));
-        allFeatures.forEach(f => { if (!featureMap.has(f.name)) featureMap.set(f.name, f); });
+        allFeatures.forEach(f => { // Ensure allFeatures are available if not in current state
+          if (!featureMap.has(f.name)) {
+            console.warn(`Feature "${f.name}" from allFeatures was not in current draggable state, adding.`);
+            featureMap.set(f.name, f);
+          }
+        });
 
+
+        // Create the new ordered array using the map
         const newOrderedFeatures = newOrderNames.map(name => {
           const feature = featureMap.get(name);
           if (!feature) {
+            // *** FIX: Log the actual name that wasn't found ***
             console.error(`Feature named "${name}" could not be found in map during reorder.`);
-            return null;
+            return null; // Should not happen if map is built correctly
           }
           return feature;
-        }).filter(Boolean) as FeatureItem[];
+        }).filter(Boolean) as FeatureItem[]; // Filter out potential nulls
 
+        // Only update state if the order actually changed (comparing IDs is reliable)
         const currentIds = currentDraggableFeatures.map(f => f.id).join(',');
         const newIds = newOrderedFeatures.map(f => f.id).join(',');
 
         if (newIds !== currentIds) {
+          // console.log("Updating draggableFeatures order:", newOrderedFeatures.map(f=>f.name));
           return newOrderedFeatures;
         }
-        return currentDraggableFeatures;
+        // console.log("DraggableFeatures order unchanged.");
+        return currentDraggableFeatures; // Return current state if no change
       });
-    }, 0);
+    }, 0); // Defer state update
   };
 
 
   const nextStep = () => {
     stopCurrentSound();
+    setError(null); // *** NEW: Clear any errors when moving to next step ***
     globalThis.lockSynth?.triggerAttackRelease("C1", "8n", Tone.now());
     setStep((prev) => prev + 1);
   };
 
   const prevStep = () => {
     stopCurrentSound();
+    setError(null); // *** NEW: Clear any errors when moving to previous step ***
     setStep((prev) => prev - 1);
   };
 
   // Name step specific next button handler
   const handleNameSubmit = (e: React.FormEvent) => {
     e.preventDefault(); // Prevent default form submission
+    // *** NEW: Validation check ***
+    if (formData.name.trim() === "") {
+      setError("Please enter your name to continue.");
+      return;
+    }
+    setError(null); // Clear error on successful check
     nextStep();
   }
 
   const handleSubmit = async () => {
     stopCurrentSound();
+    // We could add a final validation here, but the step-by-step validation should prevent invalid states
+    // However, the featurePriorities check is still valid
+    if (formData.featurePriorities.length < 4) {
+      setError("Please rank all features before submitting.");
+      return;
+    }
+
+    setError(null);
     globalThis.lockSynth?.triggerAttackRelease("C1", "4n", Tone.now());
     setLoading(true);
     try {
@@ -289,7 +332,9 @@ export default function SurveyHome() {
         throw new Error(`Network response was not ok: ${response.statusText} - ${errorBody}`);
       }
       // *** NEW: Set the flag on successful submission ***
-      localStorage.setItem('surveySubmitted', 'true');
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('surveySubmitted', 'true');
+      }
       setStep(99); // Go to the Thank You screen
     } catch (error) {
       console.error('Failed to submit survey:', error);
@@ -314,7 +359,6 @@ export default function SurveyHome() {
     <main className="flex min-h-screen flex-col items-center justify-center p-6 sm:p-12 lg:p-24 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white overflow-hidden relative">
 
       {/* --- PROGRESS BAR --- */}
-      {/* Hide progress if already submitted OR on intro/final screens */}
       {step > 0 && step < 99 && !alreadySubmitted && (
         <div className="fixed top-0 left-0 w-full h-2 bg-gray-200 dark:bg-gray-700 z-50">
           <motion.div
@@ -334,7 +378,8 @@ export default function SurveyHome() {
         {step > 0 && step < 99 && !alreadySubmitted && (
           <button
             onClick={prevStep}
-            className="absolute top-6 left-0 sm:left-[-4rem] text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors cursor-pointer z-20 p-2 rounded-full bg-gray-100 dark:bg-gray-800 shadow"
+            // *** FIX: Raised button position ***
+            className="absolute top-4 left-0 sm:left-[-4rem] text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors cursor-pointer z-20 p-2 rounded-full bg-gray-100 dark:bg-gray-800 shadow"
             aria-label="Go back"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -344,7 +389,7 @@ export default function SurveyHome() {
         )}
 
 
-        {/* Render steps based on 'step' state */}
+        {/* Render steps based on 'step' and 'alreadySubmitted' state */}
 
         {/* *** NEW: Check alreadySubmitted state first *** */}
         {alreadySubmitted === true && ( // Explicit check for true
@@ -354,10 +399,18 @@ export default function SurveyHome() {
               Looks like you've already submitted the survey from this browser.
               <br />Thank you for your contribution!
             </p>
-            {/* Optional: Link to stats page if public or contact info */}
             <a href="/stats" className="text-green-500 hover:text-green-400 underline mt-4 inline-block">View Current Stats (if available)</a>
           </motion.div>
         )}
+
+        {/* Show loading spinner if localStorage check is still in progress */}
+        {alreadySubmitted === null && (
+          <div className="flex justify-center items-center h-48">
+            {/* Simple spinner */}
+            <div className="w-12 h-12 border-4 border-green-500 border-t-transparent rounded-full animate-spin"></div>
+          </div>
+        )}
+
 
         {/* Only render survey steps if not already submitted */}
         {alreadySubmitted === false && ( // Explicit check for false
@@ -375,19 +428,23 @@ export default function SurveyHome() {
             {step === 1 && (
               <motion.div key="step-1" initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} transition={{ duration: 0.3 }} className="w-full max-w-md mx-auto">
                 <h2 className="text-2xl sm:text-3xl font-semibold mb-6">
-                  👋 Let's start with your name (optional)
+                  👋 Let's start with your name
                 </h2>
                 <form onSubmit={handleNameSubmit} className="flex flex-col items-center gap-4">
                   <input
                     ref={nameInputRef}
                     type="text"
                     value={formData.name}
-                    onChange={(e) => handleAnswer('name', e.target.value, false)} // Don't auto-advance
-                    placeholder="Enter your name or leave blank"
-                    className="w-full p-4 text-lg border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                    onChange={(e) => {
+                      handleAnswer('name', e.target.value, false);
+                      if (error) setError(null); // Clear error on type
+                    }}
+                    placeholder="Please enter your name" // Changed placeholder
+                    className={`w-full p-4 text-lg border rounded-lg shadow-sm focus:ring-2 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white ${error ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 dark:border-gray-600 focus:ring-green-500'}`}
                   />
+                  {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
                   <button
-                    type="submit" // Use type submit to trigger onSubmit
+                    type="submit"
                     className="px-8 py-3 mt-2 text-lg font-bold bg-green-600 text-white rounded-lg shadow-lg hover:bg-green-700 transition cursor-pointer"
                   >
                     Next
@@ -396,7 +453,7 @@ export default function SurveyHome() {
               </motion.div>
             )}
 
-            {/* Step 2: Age Group */}
+            {/* Step 2: Age Group (Was 1) */}
             {step === 2 && (
               <motion.div key="step-2" initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} transition={{ duration: 0.3 }} className="w-full">
                 <h2 className="text-2xl sm:text-3xl font-semibold mb-6"> 🧠 What's your age group? </h2>
@@ -408,7 +465,7 @@ export default function SurveyHome() {
               </motion.div>
             )}
 
-            {/* Step 3: Occupation */}
+            {/* Step 3: Occupation (Was 2) */}
             {step === 3 && (
               <motion.div key="step-3" initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} transition={{ duration: 0.3 }} className="w-full">
                 <h2 className="text-2xl sm:text-3xl font-semibold mb-6"> And what's your current role? </h2>
@@ -419,7 +476,7 @@ export default function SurveyHome() {
               </motion.div>
             )}
 
-            {/* Step 4: Noise Locations */}
+            {/* Step 4: Noise Locations (Was 3) */}
             {step === 4 && (
               <motion.div key="step-4" initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} transition={{ duration: 0.3 }} className="w-full space-y-6">
                 <h2 className="text-2xl sm:text-3xl font-semibold mb-4"> 🔊 Where do you experience the most noise? </h2>
@@ -427,14 +484,42 @@ export default function SurveyHome() {
                 <div className="grid grid-cols-2 gap-4">
                   {[{ label: 'Home', icon: '🏠' }, { label: 'Commute', icon: '🚗' }, { label: 'College/Work', icon: '🏢' }, { label: 'Metro/Bus Stop', icon: '🚇' }, { label: 'Construction', icon: '🏗️' },].map(({ label, icon }) => {
                     const selected = formData.noiseSourceLocations.includes(label);
-                    return (<button key={label} onClick={(e) => { const updated = selected ? formData.noiseSourceLocations.filter((l) => l !== label) : [...formData.noiseSourceLocations, label]; handleAnswer('noiseSourceLocations', updated, false); const el = e.currentTarget; el.classList.remove('animate-bounceOnce'); void el.offsetWidth; el.classList.add('animate-bounceOnce'); }} className={`flex items-center justify-start gap-3 p-4 rounded-lg shadow-sm border transition-all duration-200 cursor-pointer ${selected ? 'bg-green-200 border-green-500 text-green-800' : 'bg-gray-100 dark:bg-gray-800 hover:border-green-400'}`} > <span className="text-2xl">{icon}</span> <span className="text-lg font-medium">{label}</span> </button>);
+                    return (
+                      <button
+                        key={label}
+                        onClick={(e) => {
+                          if (error) setError(null);
+                          const updated = selected ? formData.noiseSourceLocations.filter((l) => l !== label) : [...formData.noiseSourceLocations, label];
+                          handleAnswer('noiseSourceLocations', updated, false);
+                          const el = e.currentTarget; el.classList.remove('animate-bounceOnce'); void el.offsetWidth; el.classList.add('animate-bounceOnce');
+                        }}
+                        // *** FIX: Use items-start and add flex-1 to the span ***
+                        className={`flex items-start justify-start gap-3 p-4 rounded-lg shadow-sm border transition-all duration-200 cursor-pointer ${selected ? 'bg-green-200 border-green-500 text-green-800' : 'bg-gray-100 dark:bg-gray-800 hover:border-green-400'}`}
+                      >
+                        <span className="text-2xl mt-1 flex-shrink-0">{icon}</span>
+                        <span className="text-lg font-medium text-left flex-1">{label}</span>
+                      </button>
+                    );
                   })}
                 </div>
-                <button onClick={nextStep} className="mt-6 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition cursor-pointer"> Next </button>
+                {error && <p className="text-red-500 text-sm mt-4">{error}</p>}
+                <button
+                  onClick={() => {
+                    if (formData.noiseSourceLocations.length === 0) {
+                      setError("Please select at least one location.");
+                      return;
+                    }
+                    setError(null);
+                    nextStep();
+                  }}
+                  className="mt-6 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition cursor-pointer"
+                >
+                  Next
+                </button>
               </motion.div>
             )}
 
-            {/* Step 5: Noise Frequency */}
+            {/* Step 5: Noise Frequency (Was 4) */}
             {step === 5 && (
               <motion.div key="step-5" initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} transition={{ duration: 0.3 }} className="w-full space-y-6 flex flex-col items-center">
                 <h2 className="text-2xl sm:text-3xl font-semibold mb-4"> 📊 How often do you experience unwanted noise around you? </h2>
@@ -443,7 +528,7 @@ export default function SurveyHome() {
               </motion.div>
             )}
 
-            {/* Step 6: Noise Sources */}
+            {/* Step 6: Noise Sources (Was 5) */}
             {step === 6 && (
               <motion.div key="step-6" initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} transition={{ duration: 0.3 }} className="w-full space-y-6">
                 <h2 className="text-2xl sm:text-3xl font-semibold mb-4"> 🔉 What are the most common sounds around you? </h2>
@@ -451,14 +536,43 @@ export default function SurveyHome() {
                 <div className="grid grid-cols-2 gap-4">
                   {[{ label: 'Traffic', icon: '🚗', audio: '/sounds/traffic.mp3' }, { label: 'Construction', icon: '🏗️', audio: '/sounds/construction.mp3' }, { label: 'Loudspeakers', icon: '📢', audio: '/sounds/loudspeaker.mp3' }, { label: 'Neighbours', icon: '🏘️', audio: '/sounds/neighbours.mp3' }, { label: 'Metro/Trains', icon: '🚇', audio: '/sounds/train.mp3' }, { label: 'Others (listen at your own risk)', icon: '🎶', audio: '/sounds/rickroll.mp3' },].map(({ label, icon, audio }) => {
                     const selected = formData.commonNoiseSources.includes(label);
-                    return (<button key={label} onClick={() => { stopCurrentSound(); const updated = selected ? formData.commonNoiseSources.filter((s) => s !== label) : [...formData.commonNoiseSources, label]; handleAnswer('commonNoiseSources', updated, false); if (!selected) { try { const sound = new Audio(audio); sound.play().catch(e => console.error("Error playing sound:", audio, e)); audioRef.current = sound; } catch (e) { console.error("Error creating Audio object:", audio, e); } } }} className={`flex items-center justify-start gap-3 p-4 rounded-lg shadow-sm border transition-all duration-200 cursor-pointer ${selected ? 'bg-green-200 border-green-500 text-green-800' : 'bg-gray-100 dark:bg-gray-800 hover:border-green-400'}`} > <span className="text-2xl">{icon}</span> <span className="text-lg font-medium">{label}</span> </button>);
+                    return (
+                      <button
+                        key={label}
+                        onClick={() => {
+                          if (error) setError(null);
+                          stopCurrentSound();
+                          const updated = selected ? formData.commonNoiseSources.filter((s) => s !== label) : [...formData.commonNoiseSources, label];
+                          handleAnswer('commonNoiseSources', updated, false);
+                          if (!selected) { try { const sound = new Audio(audio); sound.play().catch(e => console.error("Error playing sound:", audio, e)); audioRef.current = sound; } catch (e) { console.error("Error creating Audio object:", audio, e); } }
+                        }}
+                        // *** FIX: Use items-start and add flex-1 to the span ***
+                        className={`flex items-start justify-start gap-3 p-4 rounded-lg shadow-sm border transition-all duration-200 cursor-pointer ${selected ? 'bg-green-200 border-green-500 text-green-800' : 'bg-gray-100 dark:bg-gray-800 hover:border-green-400'}`}
+                      >
+                        <span className="text-2xl mt-1 flex-shrink-0">{icon}</span>
+                        <span className="text-lg font-medium text-left flex-1">{label}</span>
+                      </button>
+                    );
                   })}
                 </div>
-                <button onClick={nextStep} className="mt-6 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition cursor-pointer"> Next </button>
+                {error && <p className="text-red-500 text-sm mt-4">{error}</p>}
+                <button
+                  onClick={() => {
+                    if (formData.commonNoiseSources.length === 0) {
+                      setError("Please select at least one sound source.");
+                      return;
+                    }
+                    setError(null);
+                    nextStep();
+                  }}
+                  className="mt-6 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition cursor-pointer"
+                >
+                  Next
+                </button>
               </motion.div>
             )}
 
-            {/* Step 7: Focus Disturbance */}
+            {/* Step 7: Focus Disturbance (Was 6) */}
             {step === 7 && (
               <motion.div key="step-7" initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} transition={{ duration: 0.3 }} className="w-full space-y-6">
                 <h2 className="text-2xl sm:text-3xl font-semibold mb-4"> 😣 How often does noise disturb your focus or sleep? </h2>
@@ -469,7 +583,7 @@ export default function SurveyHome() {
             )}
 
 
-            {/* Step 8: Headphone Frequency */}
+            {/* Step 8: Headphone Frequency (Was 7) */}
             {step === 8 && (
               <motion.div key="step-8" initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} transition={{ duration: 0.3 }} className="w-full space-y-6 flex flex-col items-center">
                 <h2 className="text-2xl sm:text-3xl font-semibold mb-4"> 🎧 How often do you use headphones to block out city noise? </h2>
@@ -478,7 +592,7 @@ export default function SurveyHome() {
               </motion.div>
             )}
 
-            {/* Step 9: Bother Level */}
+            {/* Step 9: Bother Level (Was 8) */}
             {step === 9 && (
               <motion.div key="step-9" initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} transition={{ duration: 0.3 }} className="w-full space-y-6 flex flex-col items-center">
                 <h2 className="text-2xl sm:text-3xl font-semibold mb-4"> 📶 At what point does noise start to bother you? </h2>
@@ -489,14 +603,14 @@ export default function SurveyHome() {
 
             {/* --- SWIPE QUESTIONS --- */}
 
-            {/* Step 10: Community Seriousness */}
+            {/* Step 10: Community Seriousness (Was 9) */}
             {step === 10 && (
               <motion.div key="step-10" initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -50 }} transition={{ duration: 0.3 }} className="w-full">
                 <SwipeQuestion question="💡 Do you think noise pollution is taken seriously in your community?" options={{ up: 'Yes, definitely', right: 'Somewhat', down: 'Not really', left: 'Not sure' }} onAnswer={(answer) => handleAnswer('communitySeriousness', answer, true)} />
               </motion.div>
             )}
 
-            {/* Step 11: Map Interest */}
+            {/* Step 11: Map Interest (Was 10) */}
             {step === 11 && (
               <motion.div key="step-11" initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -50 }} transition={{ duration: 0.3 }} className="w-full">
                 <SwipeQuestion question="🗺️ Would a real-time city noise map help you?" options={{ up: 'Yes, very useful', right: 'Maybe', down: 'Not really useful', left: 'No, not at all' }} onAnswer={(answer) => handleAnswer('mapInterest', answer, true)} />
@@ -504,7 +618,7 @@ export default function SurveyHome() {
             )}
 
 
-            {/* Step 12: Citizen Scientist */}
+            {/* Step 12: Citizen Scientist (Was 11) */}
             {step === 12 && (
               <motion.div key="step-12" initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -50 }} transition={{ duration: 0.3 }} className="w-full">
                 <SwipeQuestion question="🧪 Would you contribute by recording or reporting noise?" options={{ up: 'Yes, definitely', right: 'Maybe, occasionally', down: 'Unlikely', left: 'No, not interested' }} onAnswer={(answer) => handleAnswer('citizenScientist', answer, true)} />
@@ -512,7 +626,7 @@ export default function SurveyHome() {
             )}
 
 
-            {/* Step 13: Drag and Drop */}
+            {/* Step 13: Drag and Drop (Was 12) */}
             {step === 13 && (
               <motion.div key="step-13" initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} transition={{ duration: 0.3 }} className="w-full">
                 <h2 className="text-2xl sm:text-3xl font-semibold mb-6">
@@ -551,3 +665,4 @@ export default function SurveyHome() {
     </main>
   );
 }
+
