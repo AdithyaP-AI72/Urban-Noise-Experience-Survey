@@ -1,14 +1,13 @@
-// app/layout.tsx
 import type { Metadata } from "next";
-import { Inter } from "next/font/google"; // <-- Use Inter font
+import { Inter } from "next/font/google"; // Or your Geist font
 import "./globals.css";
+import Script from "next/script"; // Import the Next.js Script component
 
-// Set up the Inter font
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "SoundScape Survey", // <-- Changed title
-  description: "A survey on urban noise pollution.", // <-- Changed description
+  title: "SoundScape Survey",
+  description: "A survey on urban noise pollution.",
 };
 
 export default function RootLayout({
@@ -18,9 +17,15 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      {/* Apply the font class to the body */}
       <body className={inter.className}>
         {children}
+        
+        {/* *** ADD THIS SCRIPT *** */}
+        {/* This loads the webaudio-controls library */}
+        <Script
+          src="https://webaudio.github.io/webaudio-controls/webaudio-controls.min.js"
+          strategy="beforeInteractive" // Load it early
+        />
       </body>
     </html>
   );
