@@ -4,7 +4,9 @@ import React, { useState, useEffect } from 'react';
 import {
     DndContext,
     closestCenter,
+    // Import TouchSensor
     PointerSensor,
+    TouchSensor, // <-- Import TouchSensor
     KeyboardSensor,
     useSensor,
     useSensors,
@@ -29,7 +31,6 @@ export interface FeatureItem {
 
 interface DraggableListProps {
     initialItems: FeatureItem[];
-    // *** FIX: Ensure this prop expects string[] ***
     onOrderChange: (newOrderNames: string[]) => void;
 }
 
@@ -47,8 +48,26 @@ const DraggableList: React.FC<DraggableListProps> = ({ initialItems, onOrderChan
         }
     }, [initialItems, items]);
 
+    // *** UPDATED SENSOR CONFIGURATION ***
     const sensors = useSensors(
-        useSensor(PointerSensor),
+        // Configure PointerSensor (handles mouse and touch generally)
+        useSensor(PointerSensor, {
+             // Require a small delay and distance before activating drag
+             // Helps prevent accidental drags when scrolling on touch devices
+            activationConstraint: {
+                delay: 100, // milliseconds
+                tolerance: 5, // pixels
+            },
+        }),
+        // Explicitly add TouchSensor (might improve compatibility on some devices)
+        useSensor(TouchSensor, {
+             // Same activation constraint for touch
+             activationConstraint: {
+                delay: 100,
+                tolerance: 5,
+            },
+        }),
+        // Keep KeyboardSensor for accessibility
         useSensor(KeyboardSensor, {
             coordinateGetter: sortableKeyboardCoordinates,
         })
@@ -56,6 +75,10 @@ const DraggableList: React.FC<DraggableListProps> = ({ initialItems, onOrderChan
 
     const handleDragStart = (event: DragStartEvent) => {
         setActiveId(event.active.id as string);
+        // Optional: Add haptic feedback on mobile if desired
+        if (navigator.vibrate) {
+            navigator.vibrate(50); // Vibrate for 50ms
+        }
     };
 
     const handleDragEnd = (event: DragEndEvent) => {
@@ -73,16 +96,15 @@ const DraggableList: React.FC<DraggableListProps> = ({ initialItems, onOrderChan
                 }
 
                 const newItems = arrayMove(currentItems, oldIndex, newIndex);
-                // *** FIX: Pass only the array of names ***
                 onOrderChange(newItems.map(item => item.name));
-                return newItems; // Update local state
+                return newItems;
             });
         }
     };
 
     return (
         <DndContext
-            sensors={sensors}
+            sensors={sensors} // Use updated sensors
             collisionDetection={closestCenter}
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
@@ -91,7 +113,9 @@ const DraggableList: React.FC<DraggableListProps> = ({ initialItems, onOrderChan
                 items={items.map(item => item.id)}
                 strategy={verticalListSortingStrategy}
             >
-                <div className="space-y-3 mb-6 p-4 border border-dashed rounded-lg max-w-md mx-auto">
+                {/* Apply touch-action:none to the container of sortable items */}
+                {/* This helps prevent browser scroll interference */}
+                <div className="space-y-3 mb-6 p-4 border border-dashed rounded-lg max-w-md mx-auto touch-none"> {/* <-- Added touch-none */}
                     {items.map((item, index) => (
                         <SortableItem
                             key={item.id}
