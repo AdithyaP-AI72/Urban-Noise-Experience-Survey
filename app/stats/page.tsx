@@ -1,6 +1,6 @@
 "use client"; // Needs to be a client component for state and interaction
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react'; // Added useCallback
 import { motion } from 'framer-motion';
 import BarChartDisplay from '@/components/BarChartDisplay'; // Assuming you have these
 import PieChartDisplay from '@/components/PieChartDisplay'; // Assuming you have these
@@ -13,10 +13,10 @@ interface SubmissionSummary {
     _id: string;
     name?: string; // Name is optional
     createdAt: string; // Use string for date from API
+    isDuplicate?: boolean; // Add isDuplicate
 }
 
 // Define structure for the detailed data fetched client-side
-// *** FIX: Removed sleepEffect and stressEffect ***
 interface SubmissionDetail {
     _id: string;
     name?: string;
@@ -34,10 +34,12 @@ interface SubmissionDetail {
     mapInterest?: string;
     citizenScientist?: string;
     featurePriorities?: string[];
+    isDuplicate?: boolean; // Add isDuplicate
 }
 
 // Define structure for the aggregated stats data
 interface AggregatedStats {
+    totalSubmissions: number; // Add total count from backend
     averageHeadphoneFreq: string | number;
     topOccupation: string;
     ageGroupData: any[];
@@ -66,13 +68,16 @@ interface ChartModalContent {
 const DetailRow = ({ label, value }: { label: string, value: any }) => {
     let displayValue: React.ReactNode = '';
 
-    if (Array.isArray(value)) {
+    if (label.toLowerCase() === 'duplicate' && typeof value === 'boolean') {
+        displayValue = value ? 'Yes' : 'No';
+    } else if (Array.isArray(value)) {
         displayValue = value.length > 0 ? value.join(', ') : <span className="text-gray-400 italic">None selected</span>;
     } else if (value === '' || value === null || typeof value === 'undefined') {
         displayValue = <span className="text-gray-400 italic">Not answered</span>;
     } else {
         displayValue = String(value);
     }
+
 
     return (
         <div className="grid grid-cols-3 gap-2 border-b border-gray-200 dark:border-gray-700 py-2 last:border-b-0">
@@ -101,100 +106,93 @@ export default function StatsPageClient() {
     const [loadingDetails, setLoadingDetails] = useState(false);
     const [detailError, setDetailError] = useState<string | null>(null);
 
-    // *** NEW State for Chart Modal ***
+    // State for Chart Modal
     const [isChartModalOpen, setIsChartModalOpen] = useState(false);
     const [chartModalContent, setChartModalContent] = useState<ChartModalContent | null>(null);
 
-    // Fetch summary data on initial load
-    useEffect(() => {
-        const fetchSummaries = async () => {
-            setLoadingSummaries(true);
-            setSummaryError(null);
-            try {
-                const response = await fetch('/api/submissions/summary');
-                if (!response.ok) {
-                    const errorBody = await response.text();
-                    console.error("Summary fetch failed:", errorBody);
-                    throw new Error(`Failed to fetch submission summaries (${response.status})`);
-                }
-                const result = await response.json();
-                if (result.success && Array.isArray(result.data)) {
-                    const validSummaries = result.data.filter((sub: any) => sub && typeof sub._id === 'string' && /^[0-9a-fA-F]{24}$/.test(sub._id));
-                    if (validSummaries.length !== result.data.length) {
-                        console.warn("Filtered out some summaries with invalid IDs from API response.");
-                    }
-                    setSummaries(validSummaries);
-                } else {
-                    throw new Error(result.message || 'Invalid summary data format received');
-                }
-            } catch (err) {
-                console.error("Error fetching summaries:", err);
-                setSummaryError(err instanceof Error ? err.message : 'Could not load submission list.');
-            } finally {
-                setLoadingSummaries(false);
-            }
-        };
-        fetchSummaries();
-    }, []);
+    // *** NEW: State for duplicate filter ***
+    const [showDuplicates, setShowDuplicates] = useState(true);
 
-    // Fetch aggregated data on initial load
-    useEffect(() => {
-        const fetchAggregatedStats = async () => {
-            setLoadingAggregated(true);
-            setAggregatedError(null);
-            try {
-                const response = await fetch('/api/stats/aggregate'); // Fetch from the new route
-                if (!response.ok) {
-                    const errorBody = await response.text();
-                    console.error("Aggregated stats fetch failed:", errorBody);
-                    throw new Error(`Failed to fetch aggregated stats (${response.status})`);
-                }
-                const result = await response.json();
-                if (result.success) {
-                    setAggregatedStats(result.data);
-                } else {
-                    throw new Error(result.message || 'Invalid aggregated data format received');
-                }
-            } catch (err) {
-                console.error("Error fetching aggregated stats:", err);
-                setAggregatedError(err instanceof Error ? err.message : 'Could not load overall statistics.');
-            } finally {
-                setLoadingAggregated(false);
+    // --- Data Fetching Functions (using useCallback) ---
+    const fetchSummaries = useCallback(async (includeDuplicates: boolean) => {
+        setLoadingSummaries(true);
+        setSummaryError(null);
+        const url = `/api/submissions/summary${includeDuplicates ? '' : '?includeDuplicates=false'}`;
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                const errorBody = await response.text();
+                console.error("Summary fetch failed:", errorBody);
+                throw new Error(`Failed to fetch submission summaries (${response.status})`);
             }
-        };
-        fetchAggregatedStats();
-    }, []);
+            const result = await response.json();
+            if (result.success && Array.isArray(result.data)) {
+                // No need to filter by ID format here anymore, API should handle it
+                setSummaries(result.data);
+            } else {
+                throw new Error(result.message || 'Invalid summary data format received');
+            }
+        } catch (err) {
+            console.error("Error fetching summaries:", err);
+            setSummaryError(err instanceof Error ? err.message : 'Could not load submission list.');
+        } finally {
+            setLoadingSummaries(false);
+        }
+    }, []); // Empty dependency array: function definition doesn't change
+
+    const fetchAggregatedStats = useCallback(async (includeDuplicates: boolean) => {
+        setLoadingAggregated(true);
+        setAggregatedError(null);
+        const url = `/api/stats/aggregate${includeDuplicates ? '' : '?includeDuplicates=false'}`;
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                const errorBody = await response.text();
+                console.error("Aggregated stats fetch failed:", errorBody);
+                throw new Error(`Failed to fetch aggregated stats (${response.status})`);
+            }
+            const result = await response.json();
+            if (result.success) {
+                setAggregatedStats(result.data);
+            } else {
+                throw new Error(result.message || 'Invalid aggregated data format received');
+            }
+        } catch (err) {
+            console.error("Error fetching aggregated stats:", err);
+            setAggregatedError(err instanceof Error ? err.message : 'Could not load overall statistics.');
+        } finally {
+            setLoadingAggregated(false);
+        }
+    }, []); // Empty dependency array
+
+    // Fetch initial data on mount
+    useEffect(() => {
+        fetchSummaries(showDuplicates);
+        fetchAggregatedStats(showDuplicates);
+    }, [fetchSummaries, fetchAggregatedStats]); // Include functions in dependency array
+
+
+    // *** NEW: Handler for the checkbox change ***
+    const handleDuplicateFilterChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const isChecked = event.target.checked;
+        setShowDuplicates(isChecked);
+        // Refetch data with the new filter setting
+        fetchSummaries(isChecked);
+        fetchAggregatedStats(isChecked);
+    };
 
 
     // Function to fetch and display details for a selected submission
     const viewDetails = async (id: string) => {
-        // --- Enhanced Validation and Logging ---
-        console.log("Attempting to view details for ID:", id, "(Type:", typeof id, ")"); // Log ID value and type
-
-        // 1. Check if ID is provided and is a non-empty string
+        // Validation... (keeping your existing robust validation)
+        console.log("Attempting to view details for ID:", id, "(Type:", typeof id, ")");
         if (!id || typeof id !== 'string' || id.trim() === '') {
-            const errorMsg = `Invalid ID provided: ${id}`;
-            console.error("View Details Error:", errorMsg);
-            setDetailError(errorMsg);
-            setIsDetailModalOpen(true);
-            setSelectedSubmission(null);
-            setLoadingDetails(false);
-            return;
+            const errorMsg = `Invalid ID provided: ${id}`; console.error("View Details Error:", errorMsg); setDetailError(errorMsg); setIsDetailModalOpen(true); setSelectedSubmission(null); setLoadingDetails(false); return;
         }
-
-        // 2. Check the specific MongoDB ObjectId format (24 hex characters)
         const objectIdRegex = /^[0-9a-fA-F]{24}$/;
         if (!objectIdRegex.test(id)) {
-            const errorMsg = `Invalid submission ID format: "${id}" is not a 24-char hex string.`;
-            console.error("View Details Error:", errorMsg);
-            setDetailError(errorMsg);
-            setIsDetailModalOpen(true);
-            setSelectedSubmission(null);
-            setLoadingDetails(false);
-            return;
+            const errorMsg = `Invalid submission ID format: "${id}" is not a 24-char hex string.`; console.error("View Details Error:", errorMsg); setDetailError(errorMsg); setIsDetailModalOpen(true); setSelectedSubmission(null); setLoadingDetails(false); return;
         }
-        // --- End Enhanced Validation ---
-
         console.log(`ID "${id}" passed validation. Fetching details...`);
 
         setIsDetailModalOpen(true);
@@ -202,7 +200,7 @@ export default function StatsPageClient() {
         setSelectedSubmission(null);
         setDetailError(null);
         try {
-            const response = await fetch(`/api/submissions/${id}`);
+            const response = await fetch(`/api/submissions/${id}`); // No need to filter details by duplicate status
             if (!response.ok) {
                 const errData = await response.json();
                 throw new Error(errData.message || `Failed to fetch submission ${id} (${response.status})`);
@@ -227,7 +225,7 @@ export default function StatsPageClient() {
         setDetailError(null);
     };
 
-    // *** NEW Chart Click Handler ***
+    // Chart Click Handler
     const handleChartItemClick = (chartTitle: string, itemData: { name: string; value?: number; count?: number; details?: string }) => {
         console.log("Chart item clicked:", chartTitle, itemData);
         setChartModalContent({
@@ -246,16 +244,8 @@ export default function StatsPageClient() {
 
     // ----- Render Logic -----
 
-    // Combined loading state
-    if (loadingSummaries || loadingAggregated) {
-        return <main className="min-h-screen flex items-center justify-center p-4 bg-gray-100 dark:bg-gray-900"><p className="text-gray-600 dark:text-gray-300 animate-pulse">Loading dashboard...</p></main>;
-    }
-
-    // Combined error state - Show summary error preferentially if both exist
-    const displayError = summaryError || aggregatedError;
-    if (displayError) {
-        return <main className="min-h-screen flex items-center justify-center p-4 bg-red-50 text-red-700"><p>Error: {displayError}</p></main>;
-    }
+    // Combined loading state for initial load OR refetch
+    const isLoading = loadingSummaries || loadingAggregated;
 
     // Helper function to format data for charts - ensures data exists before mapping
     const formatChartData = (dataArray: any[] | undefined | null, nameKey = '_id', valueKey = 'count') => {
@@ -286,167 +276,211 @@ export default function StatsPageClient() {
         // Entire page scrolls
         <main className="min-h-screen bg-gray-100 dark:bg-gray-900 p-4 sm:p-8 md:p-12">
             <div className="max-w-7xl mx-auto space-y-8">
-                <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 dark:text-white">
-                    📊 SoundScape Stats Dashboard
-                </h1>
-
-                {/* Top Stat Cards - Use fetched aggregated data */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-                    <StatCard title="Total Submissions" value={summaries.length} />
-                    <StatCard title="Avg. Headphone Use" value={`${aggregatedStats?.averageHeadphoneFreq ?? 'N/A'} / 10`} />
-                    <StatCard title="Top Occupation" value={aggregatedStats?.topOccupation ?? 'N/A'} />
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 dark:text-white">
+                        📊 SoundScape Stats Dashboard
+                    </h1>
+                    {/* --- NEW: Duplicate Filter Checkbox --- */}
+                    <div className="flex items-center space-x-2 text-gray-700 dark:text-gray-300">
+                        <input
+                            type="checkbox"
+                            id="duplicateFilter"
+                            checked={showDuplicates}
+                            onChange={handleDuplicateFilterChange}
+                            className="h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                            disabled={isLoading} // Disable while loading
+                        />
+                        <label htmlFor="duplicateFilter" className="text-sm font-medium">
+                            Include Duplicate Submissions
+                        </label>
+                    </div>
+                    {/* --- END: Duplicate Filter Checkbox --- */}
                 </div>
 
-                {/* --- Submission List Section --- */}
-                <section>
-                    <h2 className="text-2xl font-semibold mb-4 text-gray-800 dark:text-gray-200">
-                        Recent Submissions ({summaries.length})
-                    </h2>
-                    <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow-md max-h-96 overflow-y-auto">
-                        {summaries.length > 0 ? (
-                            <ul className="divide-y divide-gray-200 dark:divide-gray-700">
-                                {summaries.map((sub) => (
-                                    <li key={sub._id} className="py-3 flex justify-between items-center gap-4">
-                                        <div className="flex-1 min-w-0">
-                                            <span className="text-lg font-medium text-gray-900 dark:text-white truncate block">
-                                                {sub.name?.trim() || 'Anonymous'}
-                                            </span>
-                                            <span className="block text-sm text-gray-500 dark:text-gray-400">
-                                                Submitted: {new Date(sub.createdAt).toLocaleString()}
-                                            </span>
-                                        </div>
-                                        <button
-                                            onClick={() => viewDetails(sub._id)} // Ensure sub._id is passed
-                                            className="px-3 py-1 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded shadow transition flex-shrink-0"
-                                        >
-                                            View Details
-                                        </button>
-                                    </li>
-                                ))}
-                            </ul>
-                        ) : (
-                            <p className="text-center text-gray-500 dark:text-gray-400 py-4">No submissions yet.</p>
-                        )}
-                    </div>
-                </section>
 
-                {/* --- Aggregated Stats Sections --- */}
-                {aggregatedStats && (
+                {/* Display loading indicator during refetches */}
+                {isLoading && (
+                    <div className="text-center py-10">
+                        <p className="text-gray-600 dark:text-gray-300 animate-pulse">Updating dashboard...</p>
+                    </div>
+                )}
+
+                {/* Display errors */}
+                {(summaryError || aggregatedError) && !isLoading && (
+                    <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+                        <strong className="font-bold">Error:</strong>
+                        <span className="block sm:inline ml-2">{summaryError || aggregatedError}</span>
+                    </div>
+                )}
+
+                {/* Only render stats and list if not loading and no errors */}
+                {!isLoading && !summaryError && !aggregatedError && (
                     <>
-                        {/* Demographics */}
+                        {/* Top Stat Cards - Use fetched aggregated data */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+                            {/* *** UPDATED: Use count from aggregatedStats if available *** */}
+                            <StatCard title="Total Submissions" value={aggregatedStats?.totalSubmissions ?? summaries.length} />
+                            <StatCard title="Avg. Headphone Use" value={`${aggregatedStats?.averageHeadphoneFreq ?? 'N/A'} / 10`} />
+                            <StatCard title="Top Occupation" value={aggregatedStats?.topOccupation ?? 'N/A'} />
+                        </div>
+
+                        {/* --- Submission List Section --- */}
                         <section>
-                            <h2 className="text-2xl font-semibold mb-4 text-gray-800 dark:text-gray-200">Demographics</h2>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <StatsChartCard title="Age Group">
-                                    <PieChartDisplay
-                                        data={ageGroupChartData}
-                                        title="Age Group Distribution"
-                                        onItemClick={(item: { name: string; value: number }) => handleChartItemClick("Age Group", { label: item.name, value: item.value })}
-                                    />
-                                </StatsChartCard>
-                                <StatsChartCard title="Current Role">
-                                    <PieChartDisplay
-                                        data={occupationChartData}
-                                        title="Current Role Distribution"
-                                        onItemClick={(item: { name: string; value: number }) => handleChartItemClick("Current Role", { label: item.name, value: item.value })}
-                                    />
-                                </StatsChartCard>
+                            <h2 className="text-2xl font-semibold mb-4 text-gray-800 dark:text-gray-200">
+                                {/* *** UPDATED: Use count from aggregatedStats if available *** */}
+                                Submissions ({aggregatedStats?.totalSubmissions ?? summaries.length})
+                            </h2>
+                            <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow-md max-h-96 overflow-y-auto">
+                                {summaries.length > 0 ? (
+                                    <ul className="divide-y divide-gray-200 dark:divide-gray-700">
+                                        {summaries.map((sub) => (
+                                            <li key={sub._id} className="py-3 flex justify-between items-center gap-4">
+                                                <div className="flex-1 min-w-0">
+                                                    <span className="text-lg font-medium text-gray-900 dark:text-white truncate block">
+                                                        {sub.name?.trim() || 'Anonymous'}
+                                                        {/* Optionally indicate duplicates in the list */}
+                                                        {sub.isDuplicate && <span className="ml-2 text-xs font-normal text-yellow-600 dark:text-yellow-400">(Duplicate)</span>}
+                                                    </span>
+                                                    <span className="block text-sm text-gray-500 dark:text-gray-400">
+                                                        Submitted: {new Date(sub.createdAt).toLocaleString()}
+                                                    </span>
+                                                </div>
+                                                <button
+                                                    onClick={() => viewDetails(sub._id)} // Ensure sub._id is passed
+                                                    className="px-3 py-1 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded shadow transition flex-shrink-0"
+                                                >
+                                                    View Details
+                                                </button>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                ) : (
+                                    <p className="text-center text-gray-500 dark:text-gray-400 py-4">
+                                        No submissions found {showDuplicates ? '.' : ' matching the filter.'}
+                                    </p>
+                                )}
                             </div>
                         </section>
-                        {/* Noise Exposure */}
-                        <section>
-                            <h2 className="text-2xl font-semibold mb-4 text-gray-800 dark:text-gray-200">Noise Exposure</h2>
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                <StatsChartCard title="Most Common Noise Locations">
-                                    <BarChartDisplay
-                                        data={noiseLocationChartData}
-                                        title="Noise Locations" options={{ indexAxis: 'y', maintainAspectRatio: false }}
-                                        onItemClick={(item: { name: string; count: number }) => handleChartItemClick("Noise Locations", { label: item.name, value: item.count })}
-                                    />
-                                </StatsChartCard>
-                                <StatsChartCard title="Frequency of Unwanted Noise">
-                                    <BarChartDisplay
-                                        data={noiseExposureFreqChartData}
-                                        title="Unwanted Noise Frequency" options={{ maintainAspectRatio: false }}
-                                        onItemClick={(item: { name: string; count: number }) => handleChartItemClick("Unwanted Noise Frequency", { label: item.name, value: item.count })}
-                                    />
-                                </StatsChartCard>
-                                <StatsChartCard title="Most Common Sounds Heard">
-                                    <BarChartDisplay
-                                        data={commonSoundsChartData}
-                                        title="Common Sounds" options={{ indexAxis: 'y', maintainAspectRatio: false }}
-                                        onItemClick={(item: { name: string; count: number }) => handleChartItemClick("Common Sounds", { label: item.name, value: item.count })}
-                                    />
-                                </StatsChartCard>
-                            </div>
-                        </section>
-                        {/* Noise Impact */}
-                        <section>
-                            <h2 className="text-2xl font-semibold mb-4 text-gray-800 dark:text-gray-200">Noise Impact</h2>
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                <StatsChartCard title="Focus/Sleep Disturbance Freq.">
-                                    <BarChartDisplay
-                                        data={focusChartData}
-                                        title="Focus/Sleep Disturbance" options={{ maintainAspectRatio: false }}
-                                        onItemClick={(item: { name: string; count: number }) => handleChartItemClick("Focus/Sleep Disturbance", { label: item.name, value: item.count })}
-                                    />
-                                </StatsChartCard>
-                                <StatsChartCard title="Headphone Use Frequency (1-10)">
-                                    <BarChartDisplay
-                                        data={headphoneFreqChartData}
-                                        title="Headphone Use (1-10)" options={{ maintainAspectRatio: false }}
-                                        onItemClick={(item: { name: string; count: number }) => handleChartItemClick("Headphone Use", { label: item.name, value: item.count })}
-                                    />
-                                </StatsChartCard>
-                                <StatsChartCard title="Noise Annoyance Threshold">
-                                    <BarChartDisplay
-                                        data={botherLevelChartData}
-                                        title="Annoyance Threshold" options={{ maintainAspectRatio: false }}
-                                        onItemClick={(item: { name: string; count: number }) => handleChartItemClick("Annoyance Threshold", { label: item.name, value: item.count })}
-                                    />
-                                </StatsChartCard>
-                            </div>
-                        </section>
-                        {/* Community Opinion */}
-                        <section>
-                            <h2 className="text-2xl font-semibold mb-4 text-gray-800 dark:text-gray-200">Community Opinion</h2>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                <StatsChartCard title="Is Noise Pollution Taken Seriously?">
-                                    <PieChartDisplay
-                                        data={seriousnessChartData}
-                                        title="Seriousness View"
-                                        onItemClick={(item: { name: string; value: number }) => handleChartItemClick("Seriousness View", { label: item.name, value: item.value })}
-                                    />
-                                </StatsChartCard>
-                                <StatsChartCard title="Interest in Real-time Noise Map">
-                                    <PieChartDisplay
-                                        data={mapInterestChartData}
-                                        title="Map Interest"
-                                        onItemClick={(item: { name: string; value: number }) => handleChartItemClick("Map Interest", { label: item.name, value: item.value })}
-                                    />
-                                </StatsChartCard>
-                                <StatsChartCard title="Willingness to Contribute Data">
-                                    <PieChartDisplay
-                                        data={citizenScientistChartData}
-                                        title="Contribution Willingness"
-                                        onItemClick={(item: { name: string; value: number }) => handleChartItemClick("Contribution Willingness", { label: item.name, value: item.value })}
-                                    />
-                                </StatsChartCard>
-                            </div>
-                        </section>
-                        {/* Feature Preferences */}
-                        <section>
-                            <h2 className="text-2xl font-semibold mb-4 text-gray-800 dark:text-gray-200">Feature Preferences</h2>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <StatsChartCard title="Most Preferred Feature (Ranked #1)">
-                                    <BarChartDisplay
-                                        data={topFeatureChartData}
-                                        title="Top Ranked Feature" options={{ indexAxis: 'y', maintainAspectRatio: false }}
-                                        onItemClick={(item: { name: string; count: number }) => handleChartItemClick("Top Ranked Feature", { label: item.name, value: item.count })}
-                                    />
-                                </StatsChartCard>
-                            </div>
-                        </section>
+
+                        {/* --- Aggregated Stats Sections --- */}
+                        {aggregatedStats && (
+                            <>
+                                {/* Demographics */}
+                                <section>
+                                    <h2 className="text-2xl font-semibold mb-4 text-gray-800 dark:text-gray-200">Demographics</h2>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <StatsChartCard title="Age Group">
+                                            <PieChartDisplay
+                                                data={ageGroupChartData}
+                                                title="Age Group Distribution"
+                                                onItemClick={(item: any) => handleChartItemClick("Age Group", item)} // Pass item directly
+                                            />
+                                        </StatsChartCard>
+                                        <StatsChartCard title="Current Role">
+                                            <PieChartDisplay
+                                                data={occupationChartData}
+                                                title="Current Role Distribution"
+                                                onItemClick={(item: any) => handleChartItemClick("Current Role", item)}
+                                            />
+                                        </StatsChartCard>
+                                    </div>
+                                </section>
+                                {/* Noise Exposure */}
+                                <section>
+                                    <h2 className="text-2xl font-semibold mb-4 text-gray-800 dark:text-gray-200">Noise Exposure</h2>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                        <StatsChartCard title="Most Common Noise Locations">
+                                            <BarChartDisplay
+                                                data={noiseLocationChartData}
+                                                title="Noise Locations" options={{ indexAxis: 'y', maintainAspectRatio: false }}
+                                                onItemClick={(item: any) => handleChartItemClick("Noise Locations", item)}
+                                            />
+                                        </StatsChartCard>
+                                        <StatsChartCard title="Frequency of Unwanted Noise">
+                                            <BarChartDisplay
+                                                data={noiseExposureFreqChartData}
+                                                title="Unwanted Noise Frequency" options={{ maintainAspectRatio: false }}
+                                                onItemClick={(item: any) => handleChartItemClick("Unwanted Noise Frequency", item)}
+                                            />
+                                        </StatsChartCard>
+                                        <StatsChartCard title="Most Common Sounds Heard">
+                                            <BarChartDisplay
+                                                data={commonSoundsChartData}
+                                                title="Common Sounds" options={{ indexAxis: 'y', maintainAspectRatio: false }}
+                                                onItemClick={(item: any) => handleChartItemClick("Common Sounds", item)}
+                                            />
+                                        </StatsChartCard>
+                                    </div>
+                                </section>
+                                {/* Noise Impact */}
+                                <section>
+                                    <h2 className="text-2xl font-semibold mb-4 text-gray-800 dark:text-gray-200">Noise Impact</h2>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                        <StatsChartCard title="Focus/Sleep Disturbance Freq.">
+                                            <BarChartDisplay
+                                                data={focusChartData}
+                                                title="Focus/Sleep Disturbance" options={{ maintainAspectRatio: false }}
+                                                onItemClick={(item: any) => handleChartItemClick("Focus/Sleep Disturbance", item)}
+                                            />
+                                        </StatsChartCard>
+                                        <StatsChartCard title="Headphone Use Frequency (1-10)">
+                                            <BarChartDisplay
+                                                data={headphoneFreqChartData}
+                                                title="Headphone Use (1-10)" options={{ maintainAspectRatio: false }}
+                                                onItemClick={(item: any) => handleChartItemClick("Headphone Use", item)}
+                                            />
+                                        </StatsChartCard>
+                                        <StatsChartCard title="Noise Annoyance Threshold">
+                                            <BarChartDisplay
+                                                data={botherLevelChartData}
+                                                title="Annoyance Threshold" options={{ maintainAspectRatio: false }}
+                                                onItemClick={(item: any) => handleChartItemClick("Annoyance Threshold", item)}
+                                            />
+                                        </StatsChartCard>
+                                    </div>
+                                </section>
+                                {/* Community Opinion */}
+                                <section>
+                                    <h2 className="text-2xl font-semibold mb-4 text-gray-800 dark:text-gray-200">Community Opinion</h2>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                        <StatsChartCard title="Is Noise Pollution Taken Seriously?">
+                                            <PieChartDisplay
+                                                data={seriousnessChartData}
+                                                title="Seriousness View"
+                                                onItemClick={(item: any) => handleChartItemClick("Seriousness View", item)}
+                                            />
+                                        </StatsChartCard>
+                                        <StatsChartCard title="Interest in Real-time Noise Map">
+                                            <PieChartDisplay
+                                                data={mapInterestChartData}
+                                                title="Map Interest"
+                                                onItemClick={(item: any) => handleChartItemClick("Map Interest", item)}
+                                            />
+                                        </StatsChartCard>
+                                        <StatsChartCard title="Willingness to Contribute Data">
+                                            <PieChartDisplay
+                                                data={citizenScientistChartData}
+                                                title="Contribution Willingness"
+                                                onItemClick={(item: any) => handleChartItemClick("Contribution Willingness", item)}
+                                            />
+                                        </StatsChartCard>
+                                    </div>
+                                </section>
+                                {/* Feature Preferences */}
+                                <section>
+                                    <h2 className="text-2xl font-semibold mb-4 text-gray-800 dark:text-gray-200">Feature Preferences</h2>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <StatsChartCard title="Most Preferred Feature (Ranked #1)">
+                                            <BarChartDisplay
+                                                data={topFeatureChartData}
+                                                title="Top Ranked Feature" options={{ indexAxis: 'y', maintainAspectRatio: false }}
+                                                onItemClick={(item: any) => handleChartItemClick("Top Ranked Feature", item)}
+                                            />
+                                        </StatsChartCard>
+                                    </div>
+                                </section>
+                            </>
+                        )}
                     </>
                 )}
             </div>
@@ -464,8 +498,6 @@ export default function StatsPageClient() {
                             <div className="flex justify-center items-center h-32"> <p className="text-gray-600 dark:text-gray-300 animate-pulse">Loading details...</p> </div>
                         ) : detailError ? (
                             <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert"> <strong className="font-bold">Error:</strong> <span className="block sm:inline"> {detailError}</span> </div>
-
-                            // *** FIX: Manually render the fields you care about ***
                         ) : selectedSubmission ? (
                             <div className="space-y-3 text-sm sm:text-base">
                                 <DetailRow label="Name" value={selectedSubmission.name} />
@@ -475,7 +507,6 @@ export default function StatsPageClient() {
                                 <DetailRow label="Noise Exposure Freq." value={selectedSubmission.noiseExposureFreq} />
                                 <DetailRow label="Noise Locations" value={selectedSubmission.noiseSourceLocations} />
                                 <DetailRow label="Common Sounds" value={selectedSubmission.commonNoiseSources} />
-                                {/* *** FIX: Use correct field name and label *** */}
                                 <DetailRow label="Focus/Sleep Disturbance" value={selectedSubmission.focusDisturbance} />
                                 <DetailRow label="Headphone Freq." value={selectedSubmission.headphoneFreq ? `${selectedSubmission.headphoneFreq} / 10` : 'N/A'} />
                                 <DetailRow label="Bother Level" value={selectedSubmission.botherLabel ? `${selectedSubmission.botherLabel} (${selectedSubmission.botherLevel}dB)` : (selectedSubmission.botherLevel || 'N/A')} />
@@ -483,6 +514,8 @@ export default function StatsPageClient() {
                                 <DetailRow label="Map Interest" value={selectedSubmission.mapInterest} />
                                 <DetailRow label="Will Contribute" value={selectedSubmission.citizenScientist} />
                                 <DetailRow label="Feature Priorities" value={selectedSubmission.featurePriorities} />
+                                {/* Add isDuplicate display */}
+                                <DetailRow label="Duplicate" value={selectedSubmission.isDuplicate} />
                             </div>
                         ) : (<p className="text-yellow-500">Could not load submission details.</p>)}
                     </motion.div>
@@ -553,4 +586,3 @@ function StatsChartCard({ title, children }: { title: string, children: React.Re
         </div>
     );
 }
-

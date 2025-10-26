@@ -4,10 +4,32 @@ import { useRef, useEffect } from "react";
 import { motion, PanInfo, useMotionValue, animate } from "framer-motion";
 import * as Tone from "tone";
 
-// Re-declare global vars
-declare var knobOsc: Tone.Oscillator | null;
+// Re-declare globals
+
 declare var zapSynth: Tone.Synth | null;
 declare var lockSynth: Tone.MembraneSynth | null;
+
+// 🔊 preload the two sound effects
+let buzzPlayer: Tone.Player | null = null;
+let impactPlayer: Tone.Player | null = null;
+
+if (typeof window !== "undefined") {
+    Tone.loaded().then(() => {
+        buzzPlayer = new Tone.Player({
+            url: "/sounds/thor-buzz.mp3",
+            loop: true,
+            autostart: false,
+            volume: 10,
+        }).toDestination();
+
+        impactPlayer = new Tone.Player({
+            url: "/sounds/impact.mp3",
+            autostart: false,
+            playbackRate: 1, // 2x speed → ~1 sec
+            volume: 10,
+        }).toDestination();
+    });
+}
 
 const CompassDial = ({
     options,
@@ -32,21 +54,23 @@ const CompassDial = ({
     const anglePerOption = 360 / numOptions;
     const radius = size / 2.2;
 
-    // ✅ FIXED: Set initial rotation (no more mirrored indexing)
     useEffect(() => {
         const initialIndex = options.indexOf(value);
         if (initialIndex !== -1) {
-            const initialRotation = initialIndex * anglePerOption; // Fixed direction
+            const initialRotation = initialIndex * anglePerOption;
             rotation.set(initialRotation);
         }
     }, [value, options, anglePerOption, rotation]);
 
-    // Handle rotation start
-    const handlePanStart = (e: MouseEvent | TouchEvent | PointerEvent) => {
+    // ---------------- HANDLERS ----------------
+
+    const handlePanStart = async (e: any) => {
+        await Tone.start(); // ensures audio context active
         stopCurrentSound();
 
-        if (knobOsc?.state === "stopped") knobOsc.start();
-        knobOsc?.volume.rampTo(-25, 0.1);
+        // start buzz loop
+        buzzPlayer?.start();
+
 
         if (!knobRef.current) return;
         const rect = knobRef.current.getBoundingClientRect();
@@ -55,14 +79,8 @@ const CompassDial = ({
             y: rect.top + rect.height / 2,
         };
 
-        let clientX, clientY;
-        if ("touches" in e) {
-            clientX = e.touches[0].clientX;
-            clientY = e.touches[0].clientY;
-        } else {
-            clientX = (e as MouseEvent).clientX;
-            clientY = (e as MouseEvent).clientY;
-        }
+        const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
+        const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
 
         startAngleRef.current = Math.atan2(
             clientY - centerRef.current.y,
@@ -71,16 +89,9 @@ const CompassDial = ({
         startRotationRef.current = rotation.get();
     };
 
-    // Handle rotation drag
-    const handlePan = (e: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
-        let clientX, clientY;
-        if ("touches" in e) {
-            clientX = e.touches[0].clientX;
-            clientY = e.touches[0].clientY;
-        } else {
-            clientX = (e as MouseEvent).clientX;
-            clientY = (e as MouseEvent).clientY;
-        }
+    const handlePan = (e: any, info: PanInfo) => {
+        const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
+        const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
 
         const currentAngle = Math.atan2(
             clientY - centerRef.current.y,
@@ -94,25 +105,25 @@ const CompassDial = ({
         const newRotation = startRotationRef.current + deltaAngle * (180 / Math.PI);
         rotation.set(newRotation);
 
-        // Sound modulation
+        // optional modulation
         const velocity = Math.hypot(info.velocity.x, info.velocity.y);
         const volume = Math.min(-15, -30 + velocity / 50);
         const freq = Math.min(120, 40 + velocity / 20);
-        knobOsc?.volume.rampTo(volume, 0.01);
-        knobOsc?.frequency.rampTo(freq, 0.01);
     };
 
-    // Handle rotation end + snapping
     const handlePanEnd = () => {
-        knobOsc?.volume.rampTo(-Infinity, 0.1);
+
+        // stop buzz immediately
+        buzzPlayer?.stop();
+        // ⚡ play the impact at the end
+                impactPlayer?.start();
 
         const currentRotation = rotation.get();
         const closestSnapRotation = Math.round(currentRotation / anglePerOption) * anglePerOption;
-
-        // ✅ FIXED: remove mirrored indexing logic
         const snapIndex = Math.round(closestSnapRotation / anglePerOption);
         const finalIndex = (snapIndex % numOptions + numOptions) % numOptions;
         const selectedOption = options[finalIndex];
+        
 
         animate(rotation, closestSnapRotation, {
             type: "spring",
@@ -120,19 +131,19 @@ const CompassDial = ({
             damping: 30,
             onComplete: () => {
                 if (selectedOption !== value) onChange(selectedOption);
-                const note = 200 + finalIndex * 50;
-                zapSynth?.triggerAttackRelease(note, "16n");
+
+                
             },
         });
     };
 
+    // ---------------- RENDER ----------------
     return (
         <div className="flex flex-col items-center select-none" style={{ height: size + 40 }}>
             <div
                 className="relative rounded-full bg-gray-200 dark:bg-gray-800 shadow-inner select-none"
                 style={{ width: size, height: size, touchAction: "none" }}
             >
-                {/* Labels around the knob */}
                 {options.map((option, index) => {
                     const angle = (index / numOptions) * 360;
                     return (
@@ -146,9 +157,7 @@ const CompassDial = ({
                                 color: value === option ? "var(--tw-color-green-500)" : "inherit",
                                 fontWeight: value === option ? "bold" : "normal",
                                 backgroundColor:
-                                    value === option
-                                        ? "rgba(52, 211, 153, 0.15)"
-                                        : "transparent",
+                                    value === option ? "rgba(52, 211, 153, 0.15)" : "transparent",
                                 borderRadius: "6px",
                                 padding: "2px 0",
                                 transition: "color 0.2s, background-color 0.2s",
@@ -160,7 +169,6 @@ const CompassDial = ({
                     );
                 })}
 
-                {/* Knob + indicator */}
                 <motion.div
                     ref={knobRef}
                     className="absolute w-3/5 h-3/5 rounded-full shadow-lg flex items-center justify-center cursor-grab active:cursor-grabbing"
@@ -174,21 +182,17 @@ const CompassDial = ({
                     onPan={handlePan}
                     onPanEnd={handlePanEnd}
                 >
-                    {/* Knob top-view image */}
                     <img
                         src="/images/knob-top-view.png"
                         alt="Dial Knob"
                         className="w-full h-full rounded-full pointer-events-none"
                         onError={(e) => (e.currentTarget.style.display = "none")}
                     />
-
-                    {/* Indicator dot */}
                     <div
                         className="absolute top-4 w-2 h-2 bg-green-500 rounded-full shadow-md"
                         style={{
                             pointerEvents: "none",
-                            boxShadow:
-                                "0 0 5px var(--tw-color-green-500), 0 0 8px var(--tw-color-green-500)",
+                            boxShadow: "0 0 5px var(--tw-color-green-500), 0 0 8px var(--tw-color-green-500)",
                         }}
                     />
                 </motion.div>
