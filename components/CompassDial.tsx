@@ -4,6 +4,7 @@ import { useRef, useEffect } from "react";
 import { motion, PanInfo, useMotionValue, animate } from "framer-motion";
 import * as Tone from "tone";
 
+// Re-declare global vars
 declare var knobOsc: Tone.Oscillator | null;
 declare var zapSynth: Tone.Synth | null;
 declare var lockSynth: Tone.MembraneSynth | null;
@@ -31,22 +32,18 @@ const CompassDial = ({
     const anglePerOption = 360 / numOptions;
     const radius = size / 2.2;
 
-    // Set initial rotation based on value
+    // ✅ FIXED: Set initial rotation (no more mirrored indexing)
     useEffect(() => {
         const initialIndex = options.indexOf(value);
         if (initialIndex !== -1) {
-            const initialRotation = -initialIndex * anglePerOption;
+            const initialRotation = initialIndex * anglePerOption; // Fixed direction
             rotation.set(initialRotation);
         }
     }, [value, options, anglePerOption, rotation]);
 
-    const handlePanStart = async (e: MouseEvent | TouchEvent | PointerEvent) => {
+    // Handle rotation start
+    const handlePanStart = (e: MouseEvent | TouchEvent | PointerEvent) => {
         stopCurrentSound();
-
-        // ✅ Resume Tone.js context for mobile
-        if (Tone.context.state !== "running") {
-            await Tone.start();
-        }
 
         if (knobOsc?.state === "stopped") knobOsc.start();
         knobOsc?.volume.rampTo(-25, 0.1);
@@ -58,7 +55,7 @@ const CompassDial = ({
             y: rect.top + rect.height / 2,
         };
 
-        let clientX: number, clientY: number;
+        let clientX, clientY;
         if ("touches" in e) {
             clientX = e.touches[0].clientX;
             clientY = e.touches[0].clientY;
@@ -74,8 +71,9 @@ const CompassDial = ({
         startRotationRef.current = rotation.get();
     };
 
+    // Handle rotation drag
     const handlePan = (e: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
-        let clientX: number, clientY: number;
+        let clientX, clientY;
         if ("touches" in e) {
             clientX = e.touches[0].clientX;
             clientY = e.touches[0].clientY;
@@ -90,8 +88,6 @@ const CompassDial = ({
         );
 
         let deltaAngle = currentAngle - startAngleRef.current;
-
-        // Normalize across ±π boundary to prevent extra rotations
         if (deltaAngle > Math.PI) deltaAngle -= 2 * Math.PI;
         if (deltaAngle < -Math.PI) deltaAngle += 2 * Math.PI;
 
@@ -106,13 +102,15 @@ const CompassDial = ({
         knobOsc?.frequency.rampTo(freq, 0.01);
     };
 
+    // Handle rotation end + snapping
     const handlePanEnd = () => {
         knobOsc?.volume.rampTo(-Infinity, 0.1);
 
         const currentRotation = rotation.get();
         const closestSnapRotation = Math.round(currentRotation / anglePerOption) * anglePerOption;
 
-        const snapIndex = Math.round(closestSnapRotation / -anglePerOption);
+        // ✅ FIXED: remove mirrored indexing logic
+        const snapIndex = Math.round(closestSnapRotation / anglePerOption);
         const finalIndex = (snapIndex % numOptions + numOptions) % numOptions;
         const selectedOption = options[finalIndex];
 
@@ -132,8 +130,9 @@ const CompassDial = ({
         <div className="flex flex-col items-center select-none" style={{ height: size + 40 }}>
             <div
                 className="relative rounded-full bg-gray-200 dark:bg-gray-800 shadow-inner select-none"
-                style={{ width: size, height: size }}
+                style={{ width: size, height: size, touchAction: "none" }}
             >
+                {/* Labels around the knob */}
                 {options.map((option, index) => {
                     const angle = (index / numOptions) * 360;
                     return (
@@ -146,7 +145,13 @@ const CompassDial = ({
                                 transform: `translate(-50%, -50%) rotate(${angle}deg) translate(0, -${radius}px) rotate(-${angle}deg)`,
                                 color: value === option ? "var(--tw-color-green-500)" : "inherit",
                                 fontWeight: value === option ? "bold" : "normal",
-                                transition: "color 0.2s",
+                                backgroundColor:
+                                    value === option
+                                        ? "rgba(52, 211, 153, 0.15)"
+                                        : "transparent",
+                                borderRadius: "6px",
+                                padding: "2px 0",
+                                transition: "color 0.2s, background-color 0.2s",
                                 pointerEvents: "none",
                             }}
                         >
@@ -155,9 +160,10 @@ const CompassDial = ({
                     );
                 })}
 
+                {/* Knob + indicator */}
                 <motion.div
                     ref={knobRef}
-                    className="absolute w-3/5 h-3/5 bg-gray-100 dark:bg-gray-700 rounded-full shadow-lg flex items-center justify-center cursor-grab active:cursor-grabbing"
+                    className="absolute w-3/5 h-3/5 rounded-full shadow-lg flex items-center justify-center cursor-grab active:cursor-grabbing"
                     style={{
                         top: "20%",
                         left: "20%",
@@ -168,12 +174,22 @@ const CompassDial = ({
                     onPan={handlePan}
                     onPanEnd={handlePanEnd}
                 >
+                    {/* Knob top-view image */}
+                    <img
+                        src="/images/knob-top-view.png"
+                        alt="Dial Knob"
+                        className="w-full h-full rounded-full pointer-events-none"
+                        onError={(e) => (e.currentTarget.style.display = "none")}
+                    />
+
+                    {/* Indicator dot */}
                     <div
-                        className="absolute top-2 w-0 h-0 
-            border-l-[10px] border-l-transparent
-            border-r-[10px] border-r-transparent
-            border-b-[16px] border-b-green-500"
-                        style={{ pointerEvents: "none" }}
+                        className="absolute top-4 w-2 h-2 bg-green-500 rounded-full shadow-md"
+                        style={{
+                            pointerEvents: "none",
+                            boxShadow:
+                                "0 0 5px var(--tw-color-green-500), 0 0 8px var(--tw-color-green-500)",
+                        }}
                     />
                 </motion.div>
             </div>

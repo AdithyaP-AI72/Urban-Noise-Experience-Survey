@@ -36,6 +36,38 @@ const ensureAudioContextStarted = async () => {
 };
 
 
+
+// --- Persona Logic Based on Bother Level ---
+function getNoisePersona(botherLevel: number) {
+  if (botherLevel <= 40) {
+    return {
+      name: '🧘 Zen Seeker',
+      description: 'You crave tranquility and notice even the faintest disruptions. Silence isn’t just golden—it’s essential.',
+    };
+  } else if (botherLevel <= 50) {
+    return {
+      name: '🎨 Mindful Listener',
+      description: 'You appreciate soft, balanced soundscapes and prefer ambient environments over noisy ones.',
+    };
+  } else if (botherLevel <= 70) {
+    return {
+      name: '🚶 Urban Tuner',
+      description: 'You’re comfortable with city sounds but still value occasional quiet. You adapt easily.',
+    };
+  } else if (botherLevel <= 90) {
+    return {
+      name: '🔧 Noise Resistor',
+      description: 'You tolerate high noise levels and rarely flinch at honking or construction. You’re resilient.',
+    };
+  } else {
+    return {
+      name: '🛠️ Sonic Tank',
+      description: 'You’re nearly impervious to noise. Jackhammers and chaos barely faze you—you thrive in urban energy.',
+    };
+  }
+}
+
+
 const initializeSounds = () => {
     // This function now *only* sets up the synths
     // Tone.start() is handled by ensureAudioContextStarted()
@@ -155,6 +187,9 @@ export default function SurveyHome() {
     const [loading, setLoading] = useState(false);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const nameInputRef = useRef<HTMLInputElement>(null); // Ref for the name input
+    const [loadingMessage, setLoadingMessage] = useState<string | null>(null);
+    const prankAudioRef = useRef<HTMLAudioElement | null>(null);
+    const bgmAudioRef = useRef<HTMLAudioElement | null>(null);
 
     const [error, setError] = useState<string | null>(null);
 
@@ -174,6 +209,15 @@ export default function SurveyHome() {
     const totalSteps = 13;
     const progress = step > 0 ? ((step - 1) / totalSteps) * 100 : 0;
 
+    const resumeBGM = () => {
+        setTimeout(() => {
+            if (bgmAudioRef.current && bgmAudioRef.current.paused) {
+            bgmAudioRef.current.play().catch((e) => console.error("Failed to resume BGM:", e));
+            }
+        }, 1000); // Delay to avoid overlap
+        };
+
+
     useEffect(() => {
         if (step === 1) {
             nameInputRef.current?.focus();
@@ -182,21 +226,67 @@ export default function SurveyHome() {
 
 
     useEffect(() => {
-        if (typeof window !== 'undefined') {
-            const submitted = localStorage.getItem('surveySubmitted') === 'true';
-            if (submitted) {
-                setAlreadySubmitted(true);
-                setStep(100);
-            } else {
-                setAlreadySubmitted(false);
-            }
+    if (typeof window !== 'undefined') {
+        const submitted = localStorage.getItem('surveySubmitted') === 'true';
+        if (submitted) {
+            setAlreadySubmitted(true);
+            setStep(100);
         } else {
             setAlreadySubmitted(false);
         }
+    } else {
+        setAlreadySubmitted(false);
+    }
 
-        const cleanupSounds = initializeSounds();
-        return cleanupSounds;
-    }, []);
+    const cleanupSounds = initializeSounds();
+
+    // 🎵 Start background music once
+    if (!bgmAudioRef.current) {
+        try {
+            const bgm = new Audio("/sounds/clair-de-lune-bgm.mp3"); 
+            bgm.loop = true;
+            bgm.volume = 0.3;
+            bgm.play().catch((e) => console.error("BGM failed to play:", e));
+            bgmAudioRef.current = bgm;
+        } catch (e) {
+            console.error("Error creating BGM audio:", e);
+        }
+    }
+
+    // 🎶 Rickroll prank at step 14
+    if (step === 14) {
+        // Pause BGM while Rickroll plays
+        bgmAudioRef.current?.pause();
+
+        try {
+            const audio = new Audio("/sounds/rickroll.mp3");
+            audio.loop = true;
+            audio.volume = 0.4;
+            audio.play().catch((e) => console.error("Rickroll failed:", e));
+            prankAudioRef.current = audio;
+        } catch (e) {
+            console.error("Error creating Rickroll audio:", e);
+        }
+    } else {
+        // Resume BGM if Rickroll ends
+        if (bgmAudioRef.current && bgmAudioRef.current.paused) {
+            bgmAudioRef.current.play().catch((e) => console.error("Failed to resume BGM:", e));
+        }
+
+        // Stop Rickroll if leaving step 14
+        prankAudioRef.current?.pause();
+        prankAudioRef.current = null;
+    }
+
+    return () => {
+        cleanupSounds?.();
+        prankAudioRef.current?.pause();
+        prankAudioRef.current = null;
+        bgmAudioRef.current?.pause();
+        bgmAudioRef.current = null;
+    };
+}, [step]);
+
 
 
     const stopCurrentSound = () => {
@@ -208,6 +298,10 @@ export default function SurveyHome() {
         if (globalThis.knobOsc && globalThis.knobOsc.volume.value > -Infinity) {
             globalThis.knobOsc.volume.rampTo(-Infinity, 0.05);
         }
+        if (bgmAudioRef.current && !bgmAudioRef.current.paused) {
+            bgmAudioRef.current.pause();
+}
+
     };
 
     useEffect(() => {
@@ -222,6 +316,7 @@ export default function SurveyHome() {
         setFormData((prev) => ({ ...prev, [key]: value }));
         if (autoAdvance) {
             await nextStep(key); // *** FIX: Await and pass key ***
+            resumeBGM();
         }
     };
 
@@ -276,6 +371,8 @@ export default function SurveyHome() {
         // The swoosh sound will be played inside the SwipeQuestion component
 
         setStep((prev) => prev + 1);
+        resumeBGM();
+
     };
 
     // *** FIX: Make prevStep async ***
@@ -298,43 +395,60 @@ export default function SurveyHome() {
     }
 
     // *** FIX: Make handleSubmit async ***
-    const handleSubmit = async () => {
-        await ensureAudioContextStarted(); // Ensure audio is ready
-        stopCurrentSound();
+   const handleSubmit = async () => {
+    await ensureAudioContextStarted(); // Ensure audio is ready
+    stopCurrentSound();
 
-        if (formData.featurePriorities.length < 4) {
-            setError("Please rank all features before submitting.");
-            return;
+    if (formData.featurePriorities.length < 4) {
+        setError("Please rank all features before submitting.");
+        return;
+    }
+
+    setError(null);
+    globalThis.lockSynth?.triggerAttackRelease("C1", "4n", Tone.now());
+
+    // 🃏 Prank step 14
+    setStep(14);
+    const messages = [
+        "Encrypting your thoughts...",
+        "Uploading to Noise Surveillance HQ...",
+        "Analyzing your vibe...",
+        "Detecting sarcasm...",
+        "Just kidding 😄 — submission complete!",
+    ];
+    for (let i = 0; i < messages.length; i++) {
+        setLoadingMessage(messages[i]);
+        await new Promise((res) => setTimeout(res, 1000));
+    }
+    resumeBGM();
+
+    setLoading(true);
+    try {
+        const currentFormData = { ...formData };
+
+        const response = await fetch('/api/submit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(currentFormData),
+        });
+
+        if (!response.ok) {
+            const errorBody = await response.text();
+            console.error('API Error Response:', errorBody);
+            throw new Error(`Network response was not ok: ${response.statusText} - ${errorBody}`);
         }
-        
-        setError(null);
-        globalThis.lockSynth?.triggerAttackRelease("C1", "4n", Tone.now());
-        setLoading(true);
-        try {
-            const currentFormData = { ...formData };
-
-            const response = await fetch('/api/submit', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(currentFormData),
-            });
-
-            if (!response.ok) {
-                const errorBody = await response.text();
-                console.error('API Error Response:', errorBody);
-                throw new Error(`Network response was not ok: ${response.statusText} - ${errorBody}`);
-            }
-            if (typeof window !== 'undefined') {
-                localStorage.setItem('surveySubmitted', 'true');
-            }
-            setStep(99);
-        } catch (error) {
-            console.error('Failed to submit survey:', error);
-            alert(`There was an error submitting your survey. ${error instanceof Error ? error.message : 'Please try again.'}`);
-        } finally {
-            setLoading(false);
+        if (typeof window !== 'undefined') {
+            localStorage.setItem('surveySubmitted', 'true');
         }
-    };
+        setStep(99);
+    } catch (error) {
+        console.error('Failed to submit survey:', error);
+        alert(`There was an error submitting your survey. ${error instanceof Error ? error.message : 'Please try again.'}`);
+    } finally {
+        setLoading(false);
+    }
+};
+
 
     // --- Reusable Button Component ---
     const SectionButton = ({ text, onClick }: { text: string, onClick: () => void }) => (
@@ -405,7 +519,7 @@ export default function SurveyHome() {
                             <motion.div key="step-0" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.3 }} >
                                 <h1 className="text-4xl sm:text-5xl font-bold mb-4"> How does your city sound? 🔊 </h1>
                                 <p className="text-lg sm:text-xl text-gray-600 dark:text-gray-300 mb-8"> Help us build a 'Noise Profile' of our community.<br /> It's fast, interactive, and makes a real difference. </p>
-                                <button onClick={nextStep} className="px-10 py-4 text-xl font-bold bg-green-600 text-white rounded-lg shadow-lg hover:bg-green-700 transition-transform transform hover:scale-105 cursor-pointer"> Start the Survey </button>
+                                <button onClick={(e) => nextStep()} className="px-10 py-4 text-xl font-bold bg-green-600 text-white rounded-lg shadow-lg hover:bg-green-700 transition-transform transform hover:scale-105 cursor-pointer"> Start the Survey </button>
                             </motion.div>
                         )}
 
@@ -465,97 +579,169 @@ export default function SurveyHome() {
 
                         {/* Step 4: Noise Locations (Was 3) */}
                         {step === 4 && (
-                            <motion.div key="step-4" initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} transition={{ duration: 0.3 }} className="w-full space-y-6">
-                                <h2 className="text-2xl sm:text-3xl font-semibold mb-4"> 🔊 Where do you experience the most noise? </h2>
-                                <p className="text-gray-600 dark:text-gray-300 mb-4"> Tap all the noisy spots on your daily map: </p>
-                                <div className="grid grid-cols-2 gap-4">
-                                    {[ { label: 'Home', icon: '🏠' }, { label: 'Commute', icon: '🚗' }, { label: 'College/Work', icon: '🏢' }, { label: 'Metro/Bus Stop', icon: '🚇' }, { label: 'Construction', icon: '🏗️' }, ].map(({ label, icon }) => {
-                                        const selected = formData.noiseSourceLocations.includes(label);
-                                        return (
-                                            <button
-                                                key={label}
-                                                onClick={(e) => {
-                                                    if (error) setError(null);
-                                                    const updated = selected ? formData.noiseSourceLocations.filter((l) => l !== label) : [...formData.noiseSourceLocations, label];
-                                                    handleAnswer('noiseSourceLocations', updated, false);
-                                                    const el = e.currentTarget; el.classList.remove('animate-bounceOnce'); void el.offsetWidth; el.classList.add('animate-bounceOnce');
-                                                }}
-                                                className={`flex items-start justify-start gap-3 p-4 rounded-lg shadow-sm border transition-all duration-200 cursor-pointer ${ selected ? 'bg-green-200 border-green-500 text-green-800' : 'bg-gray-100 dark:bg-gray-800 hover:border-green-400' }`}
-                                            >
-                                                <span className="text-2xl mt-1 flex-shrink-0">{icon}</span>
-                                                <span className="text-lg font-medium text-left flex-1">{label}</span>
-                                            </button>
-                                        );
-                                    })}
+                            <motion.div
+                                key="step-4"
+                                initial={{ opacity: 0, x: 50 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                exit={{ opacity: 0, x: -50 }}
+                                transition={{ duration: 0.3 }}
+                                className="w-full space-y-6"
+                            >
+                                <h2 className="text-2xl sm:text-3xl font-semibold mb-4">
+                                🔊 Where do you experience the most noise?
+                                </h2>
+                                <p className="text-gray-600 dark:text-gray-300 mb-4">
+                                Tap all the noisy spots on your daily map:
+                                </p>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                {[
+                                    { label: 'Home', icon: '🏠' },
+                                    { label: 'Commute', icon: '🚗' },
+                                    { label: 'College/Work', icon: '🏢' },
+                                    { label: 'Metro/Bus Stop', icon: '🚇' },
+                                    { label: 'Construction', icon: '🏗️' },
+                                ].map(({ label, icon }) => {
+                                    const selected = formData.noiseSourceLocations.includes(label);
+                                    return (
+                                    <button
+                                        key={label}
+                                        onClick={(e) => {
+                                        if (error) setError(null);
+                                        const updated = selected
+                                            ? formData.noiseSourceLocations.filter((l) => l !== label)
+                                            : [...formData.noiseSourceLocations, label];
+                                        handleAnswer('noiseSourceLocations', updated, false);
+                                        const el = e.currentTarget;
+                                        el.classList.remove('animate-bounceOnce');
+                                        void el.offsetWidth;
+                                        el.classList.add('animate-bounceOnce');
+                                        }}
+                                        className={`flex items-start justify-start gap-3 p-4 rounded-lg shadow-sm border transition-all duration-200 cursor-pointer w-full max-w-md ${
+                                        selected
+                                            ? 'bg-green-200 border-green-500 text-green-800'
+                                            : 'bg-gray-100 dark:bg-gray-800 hover:border-green-400'
+                                        }`}
+                                    >
+                                        <span className="text-2xl mt-1 flex-shrink-0">{icon}</span>
+                                        <span className="text-lg font-medium text-left flex-1 break-words whitespace-normal">
+                                        {label}
+                                        </span>
+                                    </button>
+                                    );
+                                })}
                                 </div>
                                 {error && <p className="text-red-500 text-sm mt-4">{error}</p>}
                                 <button
-                                    onClick={async () => { // *** FIX: Make async ***
-                                        if (formData.noiseSourceLocations.length === 0) {
-                                            setError("Please select at least one location.");
-                                            return;
-                                        }
-                                        setError(null);
-                                        await nextStep(); // *** FIX: Await nextStep ***
-                                    }}
-                                    className="mt-6 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition cursor-pointer"
+                                onClick={async () => {
+                                    if (formData.noiseSourceLocations.length === 0) {
+                                    setError('Please select at least one location.');
+                                    return;
+                                    }
+                                    setError(null);
+                                    await nextStep();
+                                }}
+                                className="mt-6 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition cursor-pointer"
                                 >
-                                    Next
+                                Next
                                 </button>
                             </motion.div>
-                        )}
+                            )}
+
 
                         {/* Step 5: Noise Frequency (Was 4) */}
                         {step === 5 && (
                             <motion.div key="step-5" initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} transition={{ duration: 0.3 }} className="w-full space-y-6 flex flex-col items-center">
                                 <h2 className="text-2xl sm:text-3xl font-semibold mb-4"> 📊 How often do you experience unwanted noise around you? </h2>
-                                <CompassDial options={['Rarely', 'Sometimes', 'Often', 'Very Often', 'Constantly']} value={formData.noiseExposureFreq} onChange={(val) => handleAnswer('noiseExposureFreq', val, false)} stopCurrentSound={stopCurrentSound} />
-                                <button onClick={nextStep} className="mt-8 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition cursor-pointer"> Next </button>
+                                <CompassDial
+                                options={['Rarely', 'Sometimes', 'Often', 'Very Often', 'Constantly']}
+                                value={formData.noiseExposureFreq}
+                                onChange={(val) => handleAnswer('noiseExposureFreq', val, false)}
+                                stopCurrentSound={stopCurrentSound}
+                                resumeBGM={resumeBGM} // ✅ Add this
+                                />                                <button onClick={(e) => nextStep()} className="mt-8 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition cursor-pointer"> Next </button>
                             </motion.div>
                         )}
 
                         {/* Step 6: Noise Sources (Was 5) */}
-                        {step === 6 && (
-                            <motion.div key="step-6" initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} transition={{ duration: 0.3 }} className="w-full space-y-6">
-                                <h2 className="text-2xl sm:text-3xl font-semibold mb-4"> 🔉 What are the most common sounds around you? </h2>
-                                <p className="text-gray-600 dark:text-gray-300 mb-2"> Tap to hear and select the sounds you encounter most. </p>
-                                <div className="grid grid-cols-2 gap-4">
-                                    {[ { label: 'Traffic', icon: '🚗', audio: '/sounds/traffic.mp3' }, { label: 'Construction', icon: '🏗️', audio: '/sounds/construction.mp3' }, { label: 'Loudspeakers', icon: '📢', audio: '/sounds/loudspeaker.mp3' }, { label: 'Neighbours', icon: '🏘️', audio: '/sounds/neighbours.mp3' }, { label: 'Metro/Trains', icon: '🚇', audio: '/sounds/train.mp3' }, { label: 'Others (listen at your own risk)', icon: '🎶', audio: '/sounds/rickroll.mp3' }, ].map(({ label, icon, audio }) => {
-                                        const selected = formData.commonNoiseSources.includes(label);
-                                        return (
-                                            <button
-                                                key={label}
-                                                onClick={() => {
-                                                    if (error) setError(null);
-                                                    stopCurrentSound();
-                                                    const updated = selected ? formData.commonNoiseSources.filter((s) => s !== label) : [...formData.commonNoiseSources, label];
-                                                    handleAnswer('commonNoiseSources', updated, false);
-                                                    if (!selected) { try { const sound = new Audio(audio); sound.play().catch(e => console.error("Error playing sound:", audio, e)); audioRef.current = sound; } catch (e) { console.error("Error creating Audio object:", audio, e); } }
-                                                }}
-                                                className={`flex items-start justify-start gap-3 p-4 rounded-lg shadow-sm border transition-all duration-200 cursor-pointer ${ selected ? 'bg-green-200 border-green-500 text-green-800' : 'bg-gray-100 dark:bg-gray-800 hover:border-green-400' }`}
-                                            >
-                                                <span className="text-2xl mt-1 flex-shrink-0">{icon}</span>
-                                                <span className="text-lg font-medium text-left flex-1">{label}</span>
-                                            </button>
-                                        );
-                                    })}
+                       {step === 6 && (
+                            <motion.div
+                                key="step-6"
+                                initial={{ opacity: 0, x: 50 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                exit={{ opacity: 0, x: -50 }}
+                                transition={{ duration: 0.3 }}
+                                className="w-full space-y-6"
+                            >
+                                <h2 className="text-2xl sm:text-3xl font-semibold mb-4">
+                                🔉 What are the most common sounds around you?
+                                </h2>
+                                <p className="text-gray-600 dark:text-gray-300 mb-2">
+                                Tap to hear and select the sounds you encounter most.
+                                </p>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                {[
+                                    { label: 'Traffic', icon: '🚗', audio: '/sounds/traffic.mp3' },
+                                    { label: 'Construction', icon: '🏗️', audio: '/sounds/construction.mp3' },
+                                    { label: 'Loudspeakers', icon: '📢', audio: '/sounds/loudspeaker.mp3' },
+                                    { label: 'Neighbours', icon: '🏘️', audio: '/sounds/neighbours.mp3' },
+                                    { label: 'Metro/Trains', icon: '🚇', audio: '/sounds/train.mp3' },
+                                    { label: 'Others (listen at your own risk)', icon: '🎶', audio: '/sounds/rickroll.mp3' },
+                                ].map(({ label, icon, audio }) => {
+                                    const selected = formData.commonNoiseSources.includes(label);
+                                    return (
+                                    <button
+                                        key={label}
+                                        onClick={() => {
+                                        if (error) setError(null);
+                                        stopCurrentSound();
+                                        const updated = selected
+                                            ? formData.commonNoiseSources.filter((s) => s !== label)
+                                            : [...formData.commonNoiseSources, label];
+                                        handleAnswer('commonNoiseSources', updated, false);
+                                        if (!selected) {
+                                            try {
+                                            const sound = new Audio(audio);
+                                            sound.play().catch((e) =>
+                                                console.error('Error playing sound:', audio, e)
+                                            );
+                                            audioRef.current = sound;
+                                            resumeBGM();
+                                            } catch (e) {
+                                            console.error('Error creating Audio object:', audio, e);
+                                            }
+                                        }
+                                        }}
+                                        className={`flex items-start justify-start gap-3 p-4 rounded-lg shadow-sm border transition-all duration-200 cursor-pointer w-full max-w-md ${
+                                        selected
+                                            ? 'bg-green-200 border-green-500 text-green-800'
+                                            : 'bg-gray-100 dark:bg-gray-800 hover:border-green-400'
+                                        }`}
+                                    >
+                                        <span className="text-2xl mt-1 flex-shrink-0">{icon}</span>
+                                        <span className="text-lg font-medium text-left flex-1 break-words whitespace-normal">
+                                        {label}
+                                        </span>
+                                    </button>
+                                    );
+                                })}
                                 </div>
                                 {error && <p className="text-red-500 text-sm mt-4">{error}</p>}
                                 <button
-                                    onClick={async () => { // *** FIX: Make async ***
-                                        if (formData.commonNoiseSources.length === 0) {
-                                            setError("Please select at least one sound source.");
-                                            return;
-                                        }
-                                        setError(null);
-                                        await nextStep(); // *** FIX: Await nextStep ***
-                                    }}
-                                    className="mt-6 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition cursor-pointer"
+                                onClick={async () => {
+                                    if (formData.commonNoiseSources.length === 0) {
+                                    setError('Please select at least one sound source.');
+                                    return;
+                                    }
+                                    setError(null);
+                                    await nextStep();
+                                }}
+                                className="mt-6 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition cursor-pointer"
                                 >
-                                    Next
+                                Next
                                 </button>
                             </motion.div>
-                        )}
+                            )}
+
 
                         {/* Step 7: Focus Disturbance (Was 6) */}
                         {step === 7 && (
@@ -574,7 +760,7 @@ export default function SurveyHome() {
                             <motion.div key="step-8" initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} transition={{ duration: 0.3 }} className="w-full space-y-6 flex flex-col items-center">
                                 <h2 className="text-2xl sm:text-3xl font-semibold mb-4"> 🎧 How often do you use headphones to block out city noise? </h2>
                                 <CompassDial options={Array.from({ length: 10 }, (_, i) => String(i + 1))} value={String(formData.headphoneFreq)} onChange={(val) => handleAnswer('headphoneFreq', parseInt(val), false)} stopCurrentSound={stopCurrentSound} />
-                                <button onClick={nextStep} className="mt-8 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition cursor-pointer"> Next </button>
+                                <button onClick={(e) => nextStep()} className="mt-8 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition cursor-pointer"> Next </button>
                             </motion.div>
                         )}
 
@@ -583,7 +769,7 @@ export default function SurveyHome() {
                             <motion.div key="step-9" initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} transition={{ duration: 0.3 }} className="w-full space-y-6 flex flex-col items-center">
                                 <h2 className="text-2xl sm:text-3xl font-semibold mb-4"> 📶 At what point does noise start to bother you? </h2>
                                 <CompassDial options={[ 'Library quiet (40dB)', 'Conversation (50dB)', 'Busy café (60dB)', 'Street traffic (70dB)', 'Honking (80dB)', 'Construction (90dB)', 'Loud music (100dB)', 'Jackhammer (110dB)' ]} value={formData.botherLabel} onChange={(label) => { const botherMap: { [key: string]: number } = { 'Library quiet (40dB)': 40, 'Conversation (50dB)': 50, 'Busy café (60dB)': 60, 'Street traffic (70dB)': 70, 'Honking (80dB)': 80, 'Construction (90dB)': 90, 'Loud music (100dB)': 100, 'Jackhammer (110dB)': 110, }; handleAnswer('botherLabel', label, false); handleAnswer('botherLevel', botherMap[label] || 40, false); }} stopCurrentSound={stopCurrentSound} />
-                                <button onClick={nextStep} className="mt-8 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition cursor-pointer"> Next </button>
+                                <button onClick={(e: React.MouseEvent) => nextStep()} className="mt-8 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition cursor-pointer"> Next </button>
                             </motion.div>
                         )}
 
@@ -636,20 +822,68 @@ export default function SurveyHome() {
                         )}
                     </>
                 )}
+                {/* Fake Loading Screen */}
+                    {step === 14 && (
+                        <motion.div
+                            key="step-14"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            transition={{ duration: 0.5 }}
+                            className="text-center flex flex-col items-center justify-center h-96"
+                        >
+                            <div className="w-12 h-12 border-4 border-green-500 border-t-transparent rounded-full animate-spin mb-6"></div>
+                            <p className="text-lg sm:text-xl text-gray-600 dark:text-gray-300 mb-4">
+                            {loadingMessage}
+                            </p>
+                            <button
+                            onClick={() => alert("You cannot cancel the upload!! 😈")}
+                            className="w-full max-w-xs sm:max-w-sm px-4 py-2 text-sm sm:text-base font-semibold bg-red-500 text-white rounded-lg shadow hover:bg-red-600 transition break-words whitespace-normal text-center"                            >
+                            Cancel Upload (click if you dare!)
+                            </button>
+                        </motion.div>
+                        )}
+
 
                 {/* Step 99: Final "Persona" Screen */}
                 {step === 99 && (
-                    <motion.div key="step-99" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.5 }} className="text-center">
-                        <h1 className="text-4xl sm:text-5xl font-bold mb-4"> Thank You! </h1>
-                        <p className="text-lg sm:text-xl text-gray-600 dark:text-gray-300 mb-8"> Your submission has been recorded. </p>
-                        <div className="p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md">
-                            <h2 className="text-2xl font-semibold mb-2"> Your Noise Persona: 🧘 Zen Seeker </h2>
-                            <p className="text-gray-700 dark:text-gray-300"> (Dynamic persona description and mini-analytics go here.) </p>
-                        </div>
+                    <motion.div
+                        key="step-99"
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ duration: 0.5 }}
+                        className="text-center"
+                    >
+                        <h1 className="text-4xl sm:text-5xl font-bold mb-4 text-green-600">🎉 Thank You!</h1>
+                        <p className="text-lg sm:text-xl text-gray-600 dark:text-gray-300 mb-8">
+                        Your submission has been recorded.
+                        </p>
+
+                        {/* 🎭 Dynamic Persona */}
+                        {(() => {
+                        const persona = getNoisePersona(formData.botherLevel);
+                        const topFeature = formData.featurePriorities?.[0];
+
+                        return (
+                            <div className="p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md border border-green-500">
+                            <h2 className="text-2xl sm:text-3xl font-semibold mb-4">
+                                Your Noise Persona: {persona.name}
+                            </h2>
+                            <p className="text-gray-700 dark:text-gray-300 text-lg mb-4">
+                                {persona.description}
+                            </p>
+
+                            {/* 🎯 Contextual Tip */}
+                            {topFeature && (
+                                <div className="mt-4 text-sm text-green-700 dark:text-green-300 italic">
+                                Tip: Based on your preferences, try exploring <strong>{topFeature}</strong> to match your soundscape needs.
+                                </div>
+                            )}
+                            </div>
+                        );
+                        })()}
                     </motion.div>
-                )}
+                    )}
             </div>
         </main>
     );
 }
-
