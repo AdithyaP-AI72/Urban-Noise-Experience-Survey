@@ -1,10 +1,11 @@
+// FILE: app/api/submit/route.ts
+
 import { NextResponse } from 'next/server';
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 import { z, ZodError } from 'zod';
 import dbConnect from '@/lib/dbConnect';
 import Submission from '@/models/Submission';
-// *** REMOVED: import { headers } from "next/headers"; ***
 
 // --- Define Allowed Values (keep as before) ---
 const ageGroups = ['Below 18', '18-22', '23-30', '31-45', '45+'] as const;
@@ -19,7 +20,7 @@ const mapInterestOptions = ['Yes, very useful', 'Maybe', 'Not really useful', 'N
 const citizenScientistOptions = ['Yes, definitely', 'Maybe, occasionally', 'Unlikely', 'No, not interested'] as const;
 const featureNames = ['Noise Heatmaps', 'Quieter Routes', 'Noise Forecasts', 'Report & Learn Tool'] as const;
 
-// --- Zod Schema Definition (keep as before) ---
+// --- Zod Schema Definition ---
 const submissionSchema = z.object({
     name: z.string().max(100).optional(),
     ageGroup: z.enum(ageGroups),
@@ -28,8 +29,8 @@ const submissionSchema = z.object({
     noiseSourceLocations: z.array(z.enum(noiseLocations)).default([]),
     commonNoiseSources: z.array(z.enum(commonSounds)).default([]),
     focusDisturbance: z.enum(focusDisturbances),
-    sleepEffect: z.string().optional(),
-    stressEffect: z.string().optional(),
+    sleepEffect: z.string().optional(), // Keep if needed, or remove if truly unused
+    stressEffect: z.string().optional(),// Keep if needed, or remove if truly unused
     headphoneFreq: z.number().min(1).max(10),
     botherLevel: z.number().min(40).max(110),
     botherLabel: z.enum(botherLabels),
@@ -41,6 +42,8 @@ const submissionSchema = z.object({
         .refine((items) => new Set(items).size === items.length, {
             message: 'Feature priorities must be unique.',
         }),
+    // *** FIX: Add isDuplicate to the Zod schema ***
+    isDuplicate: z.boolean().optional(), // Allow boolean, make it optional
 });
 
 // --- Rate Limiting Setup (keep as before) ---
@@ -54,7 +57,7 @@ if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) 
     });
     ratelimit = new Ratelimit({
         redis: redis,
-        limiter: Ratelimit.slidingWindow(5, "15 s"),
+        limiter: Ratelimit.slidingWindow(5, "15 s"), // Allow 5 requests per 15 seconds
         analytics: true,
         prefix: "@upstash/ratelimit",
     });
@@ -63,14 +66,11 @@ if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) 
 }
 
 // --- API Route Handler ---
-export async function POST(req: Request) { // req object provides headers
+export async function POST(req: Request) {
 
     // --- Rate Limiting Check ---
     if (ratelimit) {
-        // *** FIX: Get IP from the req.headers ***
         const ip = req.headers.get("x-forwarded-for") ?? req.headers.get("x-real-ip") ?? "unknown_ip";
-
-        // Validate IP is a string before passing to rate limiter
         const identifier = typeof ip === 'string' ? ip : 'unknown_ip_source';
 
         try {
@@ -91,15 +91,18 @@ export async function POST(req: Request) { // req object provides headers
         console.log("Rate limiting skipped (not configured).");
     }
 
-    // --- Input Validation (keep as before) ---
+    // --- Input Validation ---
     let validatedData;
+    let rawBody; // Keep raw body for logging
     try {
-        const body = await req.json();
-        validatedData = submissionSchema.parse(body);
-        console.log("Submission data passed validation.");
+        rawBody = await req.json(); // Read body first
+        console.log("[POST /api/submit] Received Raw Body:", rawBody); // Log raw body
+        validatedData = submissionSchema.parse(rawBody); // Then validate
+        // Log validated data, especially isDuplicate
+        console.log("[POST /api/submit] Validated Data (includes isDuplicate?):", validatedData);
 
     } catch (error) {
-        console.error('Validation error:', error);
+        console.error('[POST /api/submit] Validation error:', error);
         if (error instanceof ZodError) {
             return NextResponse.json(
                 { success: false, message: "Invalid submission data.", errors: error.errors },
@@ -112,18 +115,19 @@ export async function POST(req: Request) { // req object provides headers
         );
     }
 
-    // --- Database Insertion (keep as before) ---
+    // --- Database Insertion ---
     try {
         await dbConnect();
-        await Submission.create(validatedData);
-        console.log("Submission saved successfully.");
+        // validatedData now includes isDuplicate (if it was sent and is boolean)
+        const newSubmission = await Submission.create(validatedData);
+        console.log("[POST /api/submit] Submission saved successfully. ID:", newSubmission._id, "Is Duplicate:", newSubmission.isDuplicate);
 
         return NextResponse.json(
-            { success: true, message: 'Submission received!' },
+            { success: true, message: 'Submission received!', data: { id: newSubmission._id } }, // Optionally return ID
             { status: 201 }
         );
     } catch (error) {
-        console.error('Error saving submission to DB:', error);
+        console.error('[POST /api/submit] Error saving submission to DB:', error);
         const message = error instanceof Error ? error.message : 'Unknown DB error.';
         return NextResponse.json(
             { success: false, message: `Database error: ${message}` },
