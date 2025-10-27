@@ -33,8 +33,14 @@ export async function GET(req: Request, context: Context) {
         await dbConnect();
         console.log(`[GET /api/submissions/${id}] Database connected. Searching...`);
 
-        // Use .lean() to get a plain JS object
-        const submission = await Submission.findById(id).lean();
+        // *** FIX: Explicitly select all fields needed by the stats page, including isDuplicate ***
+        const submission = await Submission.findById(id)
+            .select(
+                "name createdAt ageGroup occupation noiseExposureFreq noiseSourceLocations " +
+                "commonNoiseSources focusDisturbance headphoneFreq botherLabel botherLevel " +
+                "communitySeriousness mapInterest citizenScientist featurePriorities isDuplicate"
+            )
+            .lean();
 
         // --- Robust Check ---
         // Use type guards and checks that work with the inferred type from .lean()

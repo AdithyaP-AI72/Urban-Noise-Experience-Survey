@@ -117,7 +117,8 @@ export default function StatsPageClient() {
     const fetchSummaries = useCallback(async (includeDuplicates: boolean) => {
         setLoadingSummaries(true);
         setSummaryError(null);
-        const url = `/api/submissions/summary${includeDuplicates ? '' : '?includeDuplicates=false'}`;
+        // *** FIX: Switched to explicit ?includeDuplicates=true/false for clarity ***
+        const url = `/api/submissions/summary?includeDuplicates=${includeDuplicates}`;
         try {
             const response = await fetch(url);
             if (!response.ok) {
@@ -143,7 +144,8 @@ export default function StatsPageClient() {
     const fetchAggregatedStats = useCallback(async (includeDuplicates: boolean) => {
         setLoadingAggregated(true);
         setAggregatedError(null);
-        const url = `/api/stats/aggregate${includeDuplicates ? '' : '?includeDuplicates=false'}`;
+        // *** FIX: Switched to explicit ?includeDuplicates=true/false for clarity ***
+        const url = `/api/stats/aggregate?includeDuplicates=${includeDuplicates}`;
         try {
             const response = await fetch(url);
             if (!response.ok) {
@@ -165,20 +167,19 @@ export default function StatsPageClient() {
         }
     }, []); // Empty dependency array
 
-    // Fetch initial data on mount
+    // *** FIX: This effect now reacts to changes in 'showDuplicates' ***
     useEffect(() => {
         fetchSummaries(showDuplicates);
         fetchAggregatedStats(showDuplicates);
-    }, [fetchSummaries, fetchAggregatedStats]); // Include functions in dependency array
+    }, [showDuplicates, fetchSummaries, fetchAggregatedStats]); // Added showDuplicates
 
 
-    // *** NEW: Handler for the checkbox change ***
+    // *** FIX: Handler now *only* sets state. The useEffect above will handle the refetch. ***
     const handleDuplicateFilterChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const isChecked = event.target.checked;
         setShowDuplicates(isChecked);
-        // Refetch data with the new filter setting
-        fetchSummaries(isChecked);
-        fetchAggregatedStats(isChecked);
+        // fetchSummaries(isChecked); // <-- REMOVED
+        // fetchAggregatedStats(isChecked); // <-- REMOVED
     };
 
 

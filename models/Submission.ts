@@ -9,8 +9,6 @@ export interface ISubmission extends Document {
     noiseSourceLocations: string[];
     commonNoiseSources: string[];
     focusDisturbance: string; // This is the correct field
-    // sleepEffect: string; // <-- REMOVED
-    // stressEffect: string; // <-- REMOVED
     headphoneFreq: number;
     botherLevel: number;
     botherLabel: string;
@@ -20,6 +18,7 @@ export interface ISubmission extends Document {
     featurePriorities: string[];
     createdAt: Date;
     _id: Types.ObjectId; // Explicitly adding for clarity
+    isDuplicate?: boolean; // *** ADD isDuplicate field ***
 }
 
 // Create the Mongoose Schema
@@ -31,8 +30,6 @@ const SubmissionSchema: Schema = new Schema({
     noiseSourceLocations: { type: [String], default: [] },
     commonNoiseSources: { type: [String], default: [] },
     focusDisturbance: { type: String, required: true }, // Correct field
-    // sleepEffect: { type: String }, // <-- REMOVED
-    // stressEffect: { type: String }, // <-- REMOVED
     headphoneFreq: { type: Number, required: true },
     botherLevel: { type: Number, required: true },
     botherLabel: { type: String, required: true },
@@ -41,8 +38,10 @@ const SubmissionSchema: Schema = new Schema({
     citizenScientist: { type: String, required: true },
     featurePriorities: { type: [String], required: true },
     createdAt: { type: Date, default: Date.now },
+    // *** ADD isDuplicate schema field ***
+    // Default to false if not provided, don't hide it by default
+    isDuplicate: { type: Boolean, default: false },
 });
 
 export default mongoose.models.Submission ||
     mongoose.model<ISubmission>('Submission', SubmissionSchema);
-
